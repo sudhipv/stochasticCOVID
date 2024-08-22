@@ -1,0 +1,1411 @@
+
+// ##### CODE FOR INTRUSIVE SSFEM FOR COVID - SEIRD Compartmental Model - Two Level DOMAIN DECOMPOSITION
+// Simple Square Domain - Approximating (1- A/N) to take only mean value of N.
+// Two Random Variable Case - Diffusion coefficient-1 nu_S,nu_E,nu_R ; DC-2 nu_I.
+
+
+// @ copyright Sudhi P V
+// Carleton University
+// Scalar Approach
+
+// Only works up to 10th order output expansion, RV case
+// Run " ff-mpirun generate_covid.edp -ordo $n" to generate required .edp files for running this code
+
+
+include "getARGV.idp"
+load "PETSc"
+macro dimension()2//
+include "macro_ddm.idp"       // additional DDM functions
+
+load "gmsh"
+
+real t1,t2;
+
+t1 = mpiWtime();
+
+
+// For solution output in vtk format
+load "iovtk"
+int[int] Order = [1]; // 1 - P1 lagrange elements 0 - P0
+
+real t = 0.0;
+real T = getARGV("-T",0.2);
+real deltaT = getARGV("-deltaT",0.1);
+
+real nt = lround(T/deltaT);
+
+if(mpirank == 0) cout << "T is " << T << " dt is " << deltaT << " nt is "<< nt << endl;
+
+
+int level = 2;
+int s = 2;
+
+if(mpirank == 0) cout << "split is " << s << endl;
+
+Mat[int] MG(level);
+matrix[int] P(level - 1);
+
+mesh [int] Ths(level);
+mesh [int] The(level);
+mesh [int] Thi(level);
+mesh [int] Thr(level);
+mesh [int] Thd(level);
+
+//real m = getARGV("-m", 10);
+//real n = getARGV("-n", 10);
+//Ths[level-1] = square(m,n);
+
+Ths[level-1] = gmshload("./mesh/SouthON.msh");
+
+//Ths[level-1] = gmshload("./mesh/south/south_012.msh");
+The[level-1] = Ths[level-1];
+Thi[level-1] = Ths[level-1];
+Thr[level-1] = Ths[level-1];
+Thd[level-1] = Ths[level-1];
+
+
+Mat[int] S(level);
+Mat[int] E(level);
+Mat[int] I(level);
+Mat[int] R(level);
+Mat[int] D(level);
+
+matrix[int] Ps(level - 1);
+matrix[int] Pe(level - 1);
+matrix[int] Pi(level - 1);
+matrix[int] Pr(level - 1);
+matrix[int] Pd(level - 1);
+
+if(mpirank == 0) cout << "Number of Vertices in coarse grid " << "  " + Ths[level-1].nv << endl;
+
+
+
+int[int] regs = regions(Ths[level-1]);
+if(mpirank == 0) cout << "physical region tags are" << regs << endl;
+
+
+include "ssinit.edp"
+
+buildMatRecursive(Ths, s, level, Ps, S, Pk, mpiCommWorld);
+buildMatRecursive(The, s, level, Pe, E, Pk, mpiCommWorld);
+buildMatRecursive(Thi, s, level, Pi, I, Pk, mpiCommWorld);
+buildMatRecursive(Thr, s, level, Pr, R, Pk, mpiCommWorld);
+buildMatRecursive(Thd, s, level, Pd, D, Pk, mpiCommWorld);
+
+if(mpirank == 0) cout << "Number of Vertices for fine mesh in  " << Ths[0].nv  << endl; // Only for square mesh
+
+
+int[int] labs = labels(Ths[0]);
+
+if(mpirank == 0) cout<<"labels are " << labs<< endl;
+
+
+
+if(mpirank ==0)
+{
+    cout<<"order of input  "<<ordi<< endl;
+    cout<<"order of output  "<<ordo<< endl;
+    cout<<"Mean of Gaussian  "<< mug1<< endl;
+    cout<<"Sd of Gaussian  "<< sigmag1<< endl;
+
+    cout<<"Mean of Gaussian  "<< mug2<< endl;
+    cout<<"Sd of Gaussian  "<< sigmag2<< endl;
+
+    //cout << "Size of linear System  " << (m*2+1)^2 * (ordo+1) << endl;
+
+}
+
+
+// Parameters
+
+real popfact = 1;
+real areafact = 8750; // factor mapping from original map to mesh size; Actual value is 8203.025, but optimized to get compensated value
+// for missed population since our coordinates are near boundary.
+
+real A = 8.9e-3;
+
+//real beta0 = 3.78e-4;
+
+/// Calibrated Value
+func betaE = ( ( 2.69e-3 /(1+ exp(-5*(x-(-78.4)))) ) + ( 3.80e-3/(1+ exp(10*(x-(-80.25)))) ) + ( 6.7e-4 * ( 1 - 1/ (1+ exp(-5*((x-(-78.4))))) - 1/ (1+ exp(10*(x-(-80.25)))) ) ) ) * (0.101 - 0.05/(1 + exp((130-t)/1)) ); // Sum of West, east, central
+func betaI = betaE; //
+
+
+//func nuS = ( ( 4.5e-7/(1+ exp(-5*(x-(-78.4)))) ) + ( 4.5e-7 * ( 1 - 1/ (1+ exp(-5*((x-(-78.4))))) - 1/ (1+ exp(10*(x-(-80.25)))) ) ) + (4.5e-7/(1+ exp(10*(x-(-80.25)))) ) );
+//func nuE = ( ( 4.5e-7/(1+ exp(-5*(x-(-78.4)))) ) + ( 4.5e-7 * ( 1 - 1/ (1+ exp(-5*((x-(-78.4))))) - 1/ (1+ exp(10*(x-(-80.25)))) ) ) + (4.5e-7/(1+ exp(10*(x-(-80.25)))) ) );
+//func nuR = ( ( 4.5e-7/(1+ exp(-5*(x-(-78.4)))) ) + ( 4.5e-7 * ( 1 - 1/ (1+ exp(-5*((x-(-78.4))))) - 1/ (1+ exp(10*(x-(-80.25)))) ) ) + (4.5e-7/(1+ exp(10*(x-(-80.25)))) ) );
+
+
+real mu = 0.0;
+real alpha = 0.0;
+real gammaR = (1./11);
+real gammaD = (1./750);
+real gammaE = (1./15);
+//func nuI = ( ( 1e-9/(1+ exp(-5*(x-(-78.4)))) ) + ( 1e-9 * ( 1 - 1/ (1+ exp(-5*((x-(-78.4))))) - 1/ (1+ exp(5*(x-(-80.25)))) ) ) + (1e-9/(1+ exp(10*(x-(-80.25)))) ) );
+real sig = (1./5);
+real transrate = 0.25;
+
+real nuS = 0.0;
+real nuE = 0.0;
+real nuI = 0.0;
+real nuR = 0.0;
+
+/*
+real nuS = 3.94e-6;
+real nuE = 3.94e-6;
+real nuR = 3.94e-6;
+real nuI = 1e-8;
+*/
+
+if(mpirank ==0)
+{
+
+cout << "A is" << A << endl;
+cout << "betaI is" << betaI << endl;
+cout << "betE is" << betaE << endl;
+//cout << "nuS is" << nuS << endl;
+//cout << "nuE is" << nuE << endl;
+//cout << "nuR is" << nuR  << endl;
+cout << "mu is" <<  mu  << endl;
+cout << "alpha is" <<  alpha  << endl;
+cout << "gammaR is" << gammaR  << endl;
+cout << "gammaD is" << gammaD << endl;
+cout << "gammaE is" << gammaE << endl;
+//cout << "nuI is" << nuI << endl;
+cout << "sig is" << sig << endl;
+cout << "transrate is" << transrate << endl;
+
+
+}
+
+
+fespace Vh(Ths[0], P1);
+
+real cpu = clock();
+
+macro Grad(u) [dx(u),dy(u)]         // EOM
+
+// ############################################
+// ######### Initial Condition ###########################
+// ############################################
+
+
+Vh [real] Uini(5);
+
+string s1,s2,s3,s4;
+
+string std;
+
+real [int,int] k(34,2);
+
+
+//real [int,int] B(35,1);
+
+//string loc = "./../../GIS/init/pc_coord.txt";
+
+// Locations on 34 counties
+string loc = "./mesh/phu_loc.txt";
+
+//string loc = "./../../GIS/init/phu_15.txt";
+
+
+// Infected Recovered Deceased Total Population Data on each Counties
+string data = "./mesh/phu_2020_09_01.txt";
+
+
+// Area of each PHU
+string area = "./mesh/Area_PHU.txt";
+
+
+ifstream file1(loc);
+
+real i;
+
+for (int i = 0; i < 34 ; i++)
+{
+
+file1 >> s1 >> s2;
+
+//cout << c << endl;
+//cout << d << endl;
+
+k(i,0) = atof(s1);
+k(i,1) = atof(s2);
+
+//B(i,0) = atof(std);
+
+}
+
+
+real [int,int] cases(34,6);
+
+// Active Recovered Deceased Total
+
+
+ifstream file2(data);
+
+for (int i = 0; i < 34 ; i++)
+{
+
+file2 >> s1 >> s2 >> s3 >> s4;
+
+//cout << c << endl;
+//cout << d << endl;
+
+
+
+cases(i,2) = atof(s1);
+cases(i,3) = atof(s2);
+cases(i,4) = atof(s3);
+cases(i,5) = atof(s4);
+
+}
+
+
+ifstream file3(area);
+
+real[int,int] areaphu(34,1);
+
+for (int i = 0; i < 34 ; i++)
+{
+
+file3 >> s1;
+
+areaphu(i,0) = atof(s1);
+
+
+}
+
+
+// Finding out the value of Susceptible and Exposed for Each PHU
+
+// To verify the total initial and interpolated matches
+real sumS = 0;
+real sumE = 0;
+real sumI = 0;
+real sumR = 0;
+real sumD = 0;
+
+
+real sumSS = 0;
+real sumSE = 0;
+real sumSI = 0;
+real sumSR = 0;
+real sumSD = 0;
+
+
+for (int i = 0; i < 34 ; i++)
+{
+
+
+cases(i,1) = round(cases(i,2) * transrate);
+
+// Sus = total - Exp - inf - reco - deceased
+
+cases(i,0) = cases(i,5)  - cases(i,1) - cases(i,2) - cases(i,3) - cases(i,4);
+
+sumS = sumS + cases(i,0);
+sumE = sumE + cases(i,1);
+sumI = sumI + cases(i,2);
+sumR = sumR + cases(i,3);
+sumD = sumD + cases(i,4);
+
+// For only Southern Ontario
+if(i>6)
+{
+
+sumSS = sumSS + cases(i,0);
+sumSE = sumSE + cases(i,1);
+sumSI = sumSI + cases(i,2);
+sumSR = sumSR + cases(i,3);
+sumSD = sumSD + cases(i,4);
+
+}
+
+
+}
+
+
+// Gaussian Densities
+
+//string Bvalues = "./mesh/B_valuesoptimized.txt";  // Optimized to get area under pdf very near to 1 minimum 0.97 and max 1.06
+
+string Barea = "./mesh/B_area.txt";  // Optimized to get area under pdf very near to 1 minimum 0.97 and max 1.06
+
+real [int,int] B(34,1);
+
+ifstream file4(Barea);
+
+for (int i = 0; i < 34 ; i++)
+{
+
+file4 >> B(i,0);
+
+}
+
+//cout<< B<< endl;
+
+Vh Sinitfunc = 0.0;
+
+Vh Einitfunc = 0.0;
+
+Vh Iinitfunc = 0.0;
+
+Vh Rinitfunc = 0.0;
+
+Vh Dinitfunc = 0.0;
+
+Vh Tinitfunc = 0.0;
+
+
+Vh GaussS,GaussE,GaussI,GaussR, GaussD, GaussT;
+
+Vh check;
+
+real AmpS = 0.0;
+real AmpE = 0.0;
+real AmpI = 0.0;
+real AmpR = 0.0;
+real AmpD = 0.0;
+
+real AmpT = 0.0;
+
+
+for (int j = 7; j < 34; j++ )
+{
+
+
+    // Central
+    //if(j == 8 || j == 16 || j == 17 || j == 18 || j == 19 || j == 20 || j == 21 || j == 22)
+
+    //{
+
+    AmpS = 2*cases(j,0)/(popfact* areaphu(j,0));
+
+
+    AmpE = 2*cases(j,1)/(popfact* areaphu(j,0));
+
+
+
+    // To check with smooth B values only for sus and exposed
+    //AmpS = cases(j,0)/(2*pi*factor* 0.4^2);
+
+
+    //AmpE = cases(j,1)/(2*pi*factor* 0.4^2);
+
+
+    AmpI = 2*cases(j,2)/(popfact* areaphu(j,0));
+
+
+    AmpR = 2*cases(j,3)/(popfact* areaphu(j,0));
+
+
+    AmpD = 2*cases(j,4)/(popfact* areaphu(j,0));
+
+
+    AmpT = 2*cases(j,5)/(popfact* areaphu(j,0));
+
+
+
+
+    GaussS = AmpS * exp(- ( (x - k(j,0))^2 + (y-k(j,1))^2 )  / (2.0 * B(j,0)^2) );
+
+    GaussE = AmpE * exp(- ( (x - k(j,0))^2 + (y-k(j,1))^2 )  / (2.0 * B(j,0)^2) );
+
+    GaussI = AmpI * exp(- ( (x - k(j,0))^2 + (y-k(j,1))^2 )  / (2.0 * B(j,0)^2) );
+
+    GaussR = AmpR * exp(- ( (x - k(j,0))^2 + (y-k(j,1))^2 )  / (2.0 * B(j,0)^2) );
+
+    GaussD = AmpD * exp(- ( (x - k(j,0))^2 + (y-k(j,1))^2 )  / (2.0 * B(j,0)^2) );
+
+    GaussT = AmpT * exp(- ( (x - k(j,0))^2 + (y-k(j,1))^2 )  / (2.0 * B(j,0)^2) );
+
+
+    /*
+    if(mpirank ==0)
+    {
+    cout << "area under pdf on " << j <<" is "<< int2d(Th[0])(GaussI)*areafact << endl;
+    }
+    //plot(GaussS,wait = 1);
+    */
+
+
+    Sinitfunc = Sinitfunc + GaussS;
+
+    Einitfunc = Einitfunc + GaussE;
+
+    Iinitfunc = Iinitfunc + GaussI;
+
+    Rinitfunc = Rinitfunc + GaussR;
+
+    Dinitfunc = Dinitfunc + GaussD;
+
+    Tinitfunc = Tinitfunc + GaussT;
+
+
+    //}
+
+}
+
+
+Uini[0] = Sinitfunc;
+Uini[1] = Einitfunc;
+Uini[2] = Iinitfunc;
+Uini[3] = Rinitfunc;
+Uini[4] = Dinitfunc;
+
+real Sini = popfact * int2d(Ths[0])(Uini[0])*areafact;
+real Eini = popfact * int2d(The[0])(Uini[1])*areafact;
+real Iini = popfact * int2d(Thi[0])(Uini[2])*areafact;
+real Rini = popfact * int2d(Thr[0])(Uini[3])*areafact;
+real Dini = popfact * int2d(Thd[0])(Uini[4])*areafact;
+
+
+/*
+macro defplot(u)u //EOM
+
+plotMPI(Th[0], Uini[0],P1, defplot, real, cmm = "Sus");
+plotMPI(Th[0], Uini[1],P1, defplot, real, cmm = "Exp");
+plotMPI(Th[0], Uini[2],P1, defplot, real, cmm = "Inf");
+plotMPI(Th[0], Uini[3],P1, defplot, real, cmm = "Rec");
+plotMPI(Th[0], Uini[4],P1, defplot, real, cmm = "Dec");
+
+*/
+//cout << Uini[0][] << endl;
+
+// ############### Saving Initial Conditions ##############################
+
+/*
+
+savevtk("./ini/sus_ini.vtu", Ths[0], Uini[0] , bin = 1, order = Order);
+
+savevtk("./ini/exp_ini.vtu", The[0], Uini[1] , bin = 1, order = Order);
+
+savevtk("./ini/inf_ini.vtu", Thi[0], Uini[2] , bin = 1, order = Order);
+
+savevtk("./ini/rec_ini.vtu", Thr[0], Uini[3] , bin = 1, order = Order);
+
+savevtk("./ini/dec_ini.vtu", Thd[0], Uini[4] , bin = 1, order = Order);
+
+
+// ############################################
+
+
+if(mpirank == 0)
+{
+
+cout<< "Susceptible Projected " << Sini << endl;
+cout<< "Exposed Projected " << Eini << endl;
+cout<< "Infected Projected " << Iini << endl;
+cout<< "Recovered Projected " << Rini << endl;
+cout<< "Deceased Projected " << Dini << endl;
+
+cout<< "Susceptible Initial " << sumSS << endl;
+cout<< "Exposed Initial " << sumSE << endl;
+cout<< "Infected Initial " << sumSI << endl;
+cout<< "Recovered Initial " << sumSR << endl;
+cout<< "Deceased Initial " << sumSD << endl;
+//cout<< "Total Ontario Original 14864428" << endl;
+
+}
+
+*/
+
+// ##########################################################################################
+// ##########################################################################################
+// ##########################################################################################
+
+// #####################################################################################################
+// ##################### WEAK FORMS #####################################################################
+
+fespace Wh(Ths[0], Pk);
+
+Wh <real> def(UprevS); // Previous Time step
+Wh <real> def(UprevE); // Previous Time step
+Wh <real> def(UprevI); // Previous Time step
+Wh <real> def(UprevR); // Previous Time step
+Wh <real> def(UprevD); // Previous Time step
+
+
+Wh <real> def(UkS); // Previous iterate for S
+Wh <real> def(UkE); // Previous iterate E
+Wh <real> def(UkI); // Previous iterate I
+Wh <real> def(UkR); // Previous iterate R
+Wh <real> def(UkD); // Previous iterate D
+
+Wh <real> def(UkN); // Previous iterate N
+
+
+//cout << UprevN[] << endl;
+//cout << UprevAN[] << endl;
+
+//exit(1);
+
+ofstream ff("./compartment.dat");
+
+ofstream fg("./compartment_sd.dat");
+
+
+real[int, int] out(nt,5);
+real[int, int] outsd(nt,5);
+
+
+
+// ######## Defining PHUs
+
+ofstream f1("./PHU1.dat");
+ofstream f2("./PHU2.dat");
+ofstream f3("./PHU3.dat");
+ofstream f4("./PHU4.dat");
+ofstream f5("./PHU5.dat");
+ofstream f6("./PHU6.dat");
+ofstream f7("./PHU7.dat");
+ofstream f8("./PHU8.dat");
+ofstream f9("./PHU9.dat");
+ofstream f10("./PHU10.dat");
+ofstream f11("./PHU11.dat");
+ofstream f12("./PHU12.dat");
+ofstream f13("./PHU13.dat");
+ofstream f14("./PHU14.dat");
+ofstream f15("./PHU15.dat");
+ofstream f16("./PHU16.dat");
+ofstream f17("./PHU17.dat");
+ofstream f18("./PHU18.dat");
+ofstream f19("./PHU19.dat");
+ofstream f20("./PHU20.dat");
+ofstream f21("./PHU21.dat");
+ofstream f22("./PHU22.dat");
+ofstream f23("./PHU23.dat");
+ofstream f24("./PHU24.dat");
+ofstream f25("./PHU25.dat");
+ofstream f26("./PHU26.dat");
+ofstream f27("./PHU27.dat");
+ofstream f28("./PHU28.dat");
+real[int, int] outPHU1(nt,outPC+1);
+real[int, int] outPHU2(nt,outPC+1);
+real[int, int] outPHU3(nt,outPC+1);
+real[int, int] outPHU4(nt,outPC+1);
+real[int, int] outPHU5(nt,outPC+1);
+real[int, int] outPHU6(nt,outPC+1);
+real[int, int] outPHU7(nt,outPC+1);
+real[int, int] outPHU8(nt,outPC+1);
+real[int, int] outPHU9(nt,outPC+1);
+real[int, int] outPHU10(nt,outPC+1);
+real[int, int] outPHU11(nt,outPC+1);
+real[int, int] outPHU12(nt,outPC+1);
+real[int, int] outPHU13(nt,outPC+1);
+real[int, int] outPHU14(nt,outPC+1);
+real[int, int] outPHU15(nt,outPC+1);
+real[int, int] outPHU16(nt,outPC+1);
+real[int, int] outPHU17(nt,outPC+1);
+real[int, int] outPHU18(nt,outPC+1);
+real[int, int] outPHU19(nt,outPC+1);
+real[int, int] outPHU20(nt,outPC+1);
+real[int, int] outPHU21(nt,outPC+1);
+real[int, int] outPHU22(nt,outPC+1);
+real[int, int] outPHU23(nt,outPC+1);
+real[int, int] outPHU24(nt,outPC+1);
+real[int, int] outPHU25(nt,outPC+1);
+real[int, int] outPHU26(nt,outPC+1);
+real[int, int] outPHU27(nt,outPC+1);
+real[int, int] outPHU28(nt,outPC+1);
+
+outPHU1 = 0.0;
+outPHU2 = 0.0;
+outPHU3 = 0.0;
+outPHU4 = 0.0;
+outPHU5 = 0.0;
+outPHU6 = 0.0;
+outPHU7 = 0.0;
+outPHU8 = 0.0;
+outPHU9 = 0.0;
+outPHU10 = 0.0;
+outPHU11 = 0.0;
+outPHU12 = 0.0;
+outPHU13 = 0.0;
+outPHU14 = 0.0;
+outPHU15 = 0.0;
+outPHU16 = 0.0;
+outPHU17 = 0.0;
+outPHU18 = 0.0;
+outPHU19 = 0.0;
+outPHU20 = 0.0;
+outPHU21 = 0.0;
+outPHU22 = 0.0;
+outPHU23 = 0.0;
+outPHU24 = 0.0;
+outPHU25 = 0.0;
+outPHU26 = 0.0;
+outPHU27 = 0.0;
+outPHU28 = 0.0;
+
+
+
+real Cd = 0.0; // Just for using the NL poisson code, linear part is zero
+
+
+set(S, Ps, sparams = "-pc_type mg -pc_mg_type multiplicative -ksp_type fgmres -ksp_pc_side right -ksp_converged_reason -ksp_max_it 200");
+set(S, 0, sparams = "-mg_coarse_ksp_type gmres -mg_coarse_pc_type hypre -mg_coarse_ksp_converged_reason", bs=outPC);
+set(S, level - 1, sparams = "-mg_levels_pc_type asm -mg_levels_sub_pc_type lu -mg_levels_sub_pc_factor_mat_solver_type mumps");
+
+set(E, Pe, sparams = "-pc_type mg -pc_mg_type multiplicative -ksp_type fgmres -ksp_pc_side right -ksp_max_it 200");
+set(E, 0, sparams = "-mg_coarse_ksp_type gmres -mg_coarse_pc_type hypre -mg_coarse_ksp_converged_reason", bs=outPC);
+set(E, level - 1, sparams = "-mg_levels_pc_type asm -mg_levels_sub_pc_type lu -mg_levels_sub_pc_factor_mat_solver_type mumps");
+
+set(I, Pi, sparams = "-pc_type mg -pc_mg_type multiplicative -ksp_type fgmres -ksp_pc_side right -ksp_max_it 200");
+set(I, 0, sparams = "-mg_coarse_ksp_type gmres -mg_coarse_pc_type hypre -mg_coarse_ksp_converged_reason", bs=outPC);
+set(I, level - 1, sparams = "-mg_levels_pc_type asm -mg_levels_sub_pc_type lu -mg_levels_sub_pc_factor_mat_solver_type mumps");
+
+set(R, Pr, sparams = "-pc_type mg -pc_mg_type multiplicative -ksp_type fgmres -ksp_pc_side right -ksp_max_it 200");
+set(R, 0, sparams = "-mg_coarse_ksp_type gmres -mg_coarse_pc_type hypre -mg_coarse_ksp_converged_reason", bs=outPC);
+set(R, level - 1, sparams = "-mg_levels_pc_type asm -mg_levels_sub_pc_type lu -mg_levels_sub_pc_factor_mat_solver_type mumps");
+
+set(D, Pd, sparams = "-pc_type mg -pc_mg_type multiplicative -ksp_type fgmres -ksp_pc_side right -ksp_max_it 200");
+set(D, 0, sparams = "-mg_coarse_ksp_type gmres -mg_coarse_pc_type hypre -mg_coarse_ksp_converged_reason", bs=outPC);
+set(D, level - 1, sparams = "-mg_levels_pc_type asm -mg_levels_sub_pc_type lu -mg_levels_sub_pc_factor_mat_solver_type mumps");
+
+
+
+Wh <real> def(US);
+Wh <real> def(UE);
+Wh <real> def(UI);
+Wh <real> def(UR);
+Wh <real> def(UD);
+
+real [int] rhsS(Wh.ndof);
+real [int] rhsE(Wh.ndof);
+real [int] rhsI(Wh.ndof);
+real [int] rhsR(Wh.ndof);
+real [int] rhsD(Wh.ndof);
+
+real [int] diffS(Wh.ndof);
+real [int] diffE(Wh.ndof);
+real [int] diffI(Wh.ndof);
+real [int] diffR(Wh.ndof);
+real [int] diffD(Wh.ndof);
+
+
+real errL2,errsum;
+real den = 0;
+
+Vh [real] solS(outPC);
+Vh [real] solE(outPC);
+Vh [real] solI(outPC);
+Vh [real] solR(outPC);
+Vh [real] solD(outPC);
+
+Vh QN;
+Vh Nsum;
+
+
+real tp1, tp2,tt1,tt2;
+
+real[int, int] iterP(nt,1);
+real sumPicard;
+
+real tolP = 1e-8;
+
+Vh UstdS,UstdE,UstdI,UstdR,UstdD;
+
+include "ssweakcomp.edp"
+
+Vh one = 1.0;
+
+Vh AA = 1.0;
+
+real glob, locint, locintphu, globphu;
+
+real [int] locPETScS(Wh.ndof);
+real [int] locPETScE(Wh.ndof);
+real [int] locPETScI(Wh.ndof);
+real [int] locPETScR(Wh.ndof);
+real [int] locPETScD(Wh.ndof);
+
+for(int n =0; n < nt; n++)
+{
+
+    // Previous Time step Solutions
+    t = (n+1)*deltaT;
+
+    tt1 = mpiWtime();
+
+
+    UkS[] = UprevS[];
+    UkE[] = UprevE[];
+    UkI[] = UprevI[];
+    UkR[] = UprevR[];
+    UkD[] = UprevD[];
+
+
+        for(int k =0; k < 50; k++)
+        {
+
+            include "uknsum.edp"
+
+            //QN = (1- A/UkN);
+
+            //cout << "ukn is" << UkN[] << endl;
+            AA = A/UkN;// here it takes only the mean term , verify this is true if needed.
+            // UkN here is the sum of the mean coefficients of all compartments from the previous Picard iteration.
+
+            QN = (one - AA);
+
+
+            /*
+            Used for verification of QN
+            if(k ==1)
+
+            {
+                if(mpirank ==0) cout << "ukn is" << UkN1[] << endl;
+                if(mpirank ==0) cout << "a by ukn is " << AA[] << endl;
+
+                if(mpirank ==0) cout << "qn is " << QN[] << endl;
+
+                exit(1);
+            }
+
+            */
+
+
+
+            tp1 = mpiWtime();
+
+
+            for(int l=0;l<level;l++)
+
+                {
+
+                    fespace Whc(Ths[l], Pk);
+
+                    // Manual case
+                    // keep 'UNL' variable same as solution vector variable
+                    varf stocovidS(def(US),def(VS)) = int2d(Ths[l])( UtransV(US,VS) + deltaT * QN * betaI *  coeffmultbetaSI(US,VS)
+                                                                    + deltaT * QN * betaE *  coeffmultbetaSE(US,VS)
+                                                                    + deltaT *  coeffmultdiff(US,VS))
+                                                            + int2d(Ths[l])( UtransV(UprevS,VS) );
+
+
+                    varf stocovidE(def(UE),def(VE)) = int2d(Ths[l])( UtransV(UE,VE)
+                                                     - deltaT * betaE * QN * coeffmultbetaES(UE,VE)
+                                                     + deltaT * (sig + gammaE) * UtransV(UE,VE)
+                                                     + deltaT *  coeffmultdiff(UE,VE))
+                                                     + int2d(Ths[l])( UtransV(UprevE,VE) + deltaT * betaI * QN * coeffmultbetaSI(UkS,VE));
+
+
+                     varf stocovidI(def(UI),def(VI)) = int2d(Ths[l])( UtransV(UI,VI)
+                                                     + deltaT * (gammaD + gammaR) * UtransV(UI,VI)
+                                                     + deltaT *  coeffmultdiffI(UI,VI))
+                                                     + int2d(Ths[l])( UtransV(UprevI,VI) + deltaT * sig * UtransV(UkE,VI) );
+
+
+                    varf stocovidR(def(UR),def(VR)) = int2d(Ths[l])( UtransV(UR,VR)
+                                                     + deltaT *  coeffmultdiff(UR,VR))
+                                                     + int2d(Ths[l])( UtransV(UprevR,VR) + deltaT * gammaR * UtransV(UkI,VR) + deltaT * gammaE * UtransV(UkE,VR));
+
+
+                    varf stocovidD(def(UD),def(VD)) = int2d(Ths[l])( UtransV(UD,VD) )
+                                                     + int2d(Ths[l])( UtransV(UprevD,VD) + deltaT * gammaD * UtransV(UkI,VD));
+
+
+                    // for structured square weakform1. // for unstructured square weakform2.
+                    //include "ssweakform1.edp"
+
+
+                    S[l] = stocovidS(Whc,Whc,tgv=-1);
+                    if(l==0) rhsS = stocovidS(0,Whc,tgv=-1);
+
+                    E[l] = stocovidE(Whc,Whc,tgv=-1);
+                    if(l==0) rhsE = stocovidE(0,Whc,tgv=-1);
+
+
+                    I[l] = stocovidI(Whc,Whc,tgv=-1);
+                    if(l==0) rhsI = stocovidI(0,Whc,tgv=-1);
+
+                    R[l] = stocovidR(Whc,Whc,tgv=-1);
+                    if(l==0) rhsR = stocovidR(0,Whc,tgv=-1);
+
+                    D[l] = stocovidD(Whc,Whc,tgv=-1);
+                    if(l==0) rhsD = stocovidD(0,Whc,tgv=-1);
+
+                }
+
+
+            //ObjectView(S[0], format = "matlab", name = "S_"+k+".m");
+            set(S[0],setup = 1);
+            US[] = S[0]^(-1) * rhsS;
+
+//            cout << rhsS << endl;
+            //cout << " s is " << US[] << endl;
+
+            set(E[0],setup = 1);
+            UE[] = E[0]^(-1) * rhsE;
+            //cout << " e is " << UE[] << endl;
+
+
+            set(I[0],setup = 1);
+            UI[] = I[0]^(-1) * rhsI;
+            //cout << " I is " << UI[] << endl;
+
+
+            set(R[0],setup = 1);
+            UR[] = R[0]^(-1) * rhsR;
+            //cout << " R is " << UR[] << endl;
+
+
+            set(D[0],setup = 1);
+            UD[] = D[0]^(-1) * rhsD;
+            //cout << " D is " << UD[] << endl;
+
+        // Local Error calculation based on previous iterate
+
+
+            diffS = (US[] - UkS[]);
+            diffE = (UE[] - UkE[]);
+            diffI = (UI[] - UkI[]);
+            diffR = (UR[] - UkR[]);
+            diffD = (UD[] - UkD[]);
+
+            errL2 = S[0](diffS,diffS)+ S[0](diffE,diffE) + S[0](diffI,diffI) + S[0](diffR,diffR) + S[0](diffD,diffD) ;
+
+            den = S[0](UprevS[],UprevS[])+ S[0](UprevE[],UprevE[]) + S[0](UprevI[],UprevI[]) + S[0](UprevR[],UprevR[]) + S[0](UprevD[],UprevD[]) ;
+
+            errsum = sqrt(errL2)/sqrt(den);
+
+        // ############################################################################
+
+
+            //cout << "err is" << errsum << endl;
+
+            //[Uprev, Uprev1, Uprev2] = [UNL,UNL1, UNL2];
+
+            UkS[] = US[];
+            UkE[] = UE[];
+            UkI[] = UI[];
+            UkR[] = UR[];
+            UkD[] = UD[];
+
+
+            tp2 = mpiWtime() - tp1;
+
+            if(mpirank ==0)
+            {
+                cout << "iteration " << k+1 +"     "<< errsum << endl;
+                cout << "time for 1 Picard Iteration " << tp2 << endl;
+            }
+
+            // ####################################
+            if(errsum < tolP)
+            {
+                iterP(n,0) = k;
+                if(mpirank ==0) cout<< "Finished Picard Loop"<< endl;
+                break;
+            }
+
+
+            if(k == 49)
+            {
+            if(mpirank ==0) cout << "exiting without convergence in" << k+1 <<"iterations with error of" << errL2 << endl;
+            break;
+            }
+
+
+
+        } // Finished Picard Loop
+
+
+    sumPicard += iterP(n,0);
+
+    include "ssolution.edp"
+
+    if (n == 149)
+    {
+        for(int k =0; k < outPC ; k++)
+        {
+        savevtk("./output/uI"+k+".vtu", Thi[0], solI[k],bin = 1, order = Order, append = true);
+        //savevtk("./output/uD"+k+".vtu", Ths[0], solD[k],bin = 1, order = Order, append = true);
+
+        }
+
+        //savevtk("./output/uI_sd"+".vtu", Ths[0], UstdI,bin = 1, order = Order, append = true);
+        //savevtk("./output/uD_sd"+".vtu", Ths[0], UstdD,bin = 1, order = Order, append = true);
+
+    }
+
+
+
+    UprevS[] = US[];
+    UprevE[] = UE[];
+    UprevI[] = UI[];
+    UprevR[] = UR[];
+    UprevD[] = UD[];
+
+
+
+//###############Post Processing ############# Integrating solutions ################
+
+
+// Integrating mean sol
+
+    ChangeNumbering(S[0], US[], locPETScS);
+    ChangeNumbering(S[0], US[], locPETScS, inverse = true, exchange = false);
+
+    ChangeNumbering(E[0], UE[], locPETScE);
+    ChangeNumbering(E[0], UE[], locPETScE, inverse = true, exchange = false);
+
+    ChangeNumbering(I[0], UI[], locPETScI);
+    ChangeNumbering(I[0], UI[], locPETScI, inverse = true, exchange = false);
+
+    ChangeNumbering(R[0], UR[], locPETScR);
+    ChangeNumbering(R[0], UR[], locPETScR, inverse = true, exchange = false);
+
+    ChangeNumbering(D[0], UD[], locPETScD);
+    ChangeNumbering(D[0], UD[], locPETScD, inverse = true, exchange = false);
+
+
+    include "ssolution.edp"
+
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(Ths[0])(solS[0])*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "susceptible mean" << glob << endl;
+    out(n,0) = glob*popfact;
+
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(The[0])(solE[0])*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "exposed mean" << glob << endl;
+    out(n,1) = glob*popfact;
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(Thi[0])(solI[0])*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "infected mean" << glob << endl;
+    out(n,2) = glob*popfact;
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(Thr[0])(solR[0])*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "recovered mean" << glob << endl;
+    out(n,3) = glob*popfact;
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(Thd[0])(solD[0])*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "deceased mean" << glob << endl;
+    out(n,4) = glob*popfact;
+
+    //}
+
+
+// ###############################################################
+
+
+        // Calculation of standard deviation
+
+    UstdS = 0;
+    UstdE = 0;
+    UstdI = 0;
+    UstdR = 0;
+    UstdD = 0;
+
+
+    for(int j=1; j<outPC; j++)
+    {
+        UstdS = UstdS + solS[j]^2;
+        UstdE = UstdE + solE[j]^2;
+        UstdI = UstdI + solI[j]^2;
+        UstdR = UstdR + solR[j]^2;
+        UstdD = UstdD + solD[j]^2;
+    }
+
+    UstdS = sqrt(UstdS);
+    UstdE = sqrt(UstdE);
+    UstdI = sqrt(UstdI);
+    UstdR = sqrt(UstdR);
+    UstdD = sqrt(UstdD);
+
+
+// Integrating sd of sol
+
+
+
+//    ChangeNumbering(I[0], UstdI[], locPETSc);
+//    ChangeNumbering(I[0], UstdI[], locPETSc, inverse = true, exchange = false);
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(Ths[0])(UstdS)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "susceptible sd" << glob << endl;
+    outsd(n,0) = glob*popfact;
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(The[0])(UstdE)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "exposed sd" << glob << endl;
+    outsd(n,1) = glob*popfact;
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(Thi[0])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "infected sd" << glob << endl;
+    outsd(n,2) = glob*popfact;
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(Thr[0])(UstdR)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "recovered sd" << glob << endl;
+    outsd(n,3) = glob*popfact;
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(Thd[0])(UstdD)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "deceased sd" << glob << endl;
+    outsd(n,4) = glob*popfact;
+
+
+
+
+// Interating PC coefficients and sd over PHUs
+
+
+    for(int k =0; k < outPC ; k++)
+    {
+
+        // Integrating over PHUs
+
+        locintphu = 0;
+        globphu = 0;
+
+        locintphu = int2d(Ths[0],regs[0])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU1(n,k) = globphu;
+
+
+        locintphu = int2d(Ths[0],regs[1])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU2(n,k) = globphu;
+
+
+        locintphu = int2d(Ths[0],regs[2])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU3(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[3])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU4(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[4])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU5(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[5])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU6(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[6])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU7(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[7])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU8(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[8])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU9(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[9])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU10(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[10])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU11(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[11])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU12(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[12])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU13(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[13])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU14(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[14])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU15(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[15])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU16(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[16])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU17(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[17])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU18(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[18])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU19(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[19])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU20(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[20])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU21(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[21])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU22(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[22])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU23(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[23])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU24(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[24])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU25(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[25])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU26(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[26])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU27(n,k) = globphu;
+
+        locintphu = int2d(Ths[0],regs[27])(solI[k])*areafact;
+        mpiAllReduce(locintphu,globphu, mpiCommWorld, mpiSUM);
+        outPHU28(n,k) = globphu;
+
+
+    }
+
+
+
+
+    locint = 0;
+    glob = 0;
+
+    locint = int2d(Ths[0],regs[0])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU1(n,outPC) = globphu;
+
+
+    locint = int2d(Ths[0],regs[1])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU2(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[2])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU3(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[3])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU4(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[4])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU5(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[5])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU6(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[6])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU7(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[7])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU8(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[8])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU9(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[9])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU10(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[10])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU11(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[11])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU12(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[12])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU13(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[13])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU14(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[14])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU15(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[15])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU16(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[16])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU17(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[17])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU18(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[18])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU19(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[19])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU20(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[20])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU21(n,outPC) = globphu;
+
+
+    locint = int2d(Ths[0],regs[21])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU22(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[22])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU23(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[23])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU24(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[24])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU25(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[25])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU26(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[26])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU27(n,outPC) = globphu;
+
+    locint = int2d(Ths[0],regs[27])(UstdI)*areafact;
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    outPHU28(n,outPC) = globphu;
+
+
+    tt2 = mpiWtime();
+
+
+    if(mpirank ==0)
+    {
+    cout << "################## "  << endl;
+    cout << "########Finished Time step number  " << n+1 <<"######### "  << endl;
+    cout << "Time taken for 1 timestep" << tt2-tt1 << endl;
+    cout << "################## "  << endl;
+    }
+
+
+
+} // Finished Time step
+
+
+
+ff << out << endl;
+fg << outsd << endl;
+
+
+// ######### Saving PHU outputs ###########
+// ######### PHU Names can be different from MOH data. One can identify PHUs by their PHU ID. ########
+f1 << outPHU1 << endl; // Windsor -Essex
+f2 << outPHU2 << endl; // catham-kent
+f3 << outPHU3 << endl; // Lambton
+f4 << outPHU4 << endl; // South wester
+f5 << outPHU5 << endl; // Middlesex -London
+f6 << outPHU6 << endl; // Huron Perth
+f7 << outPHU7 << endl; // Haldimand - Norfolk
+f8 << outPHU8 << endl; // Brant county
+f9 << outPHU9 << endl; // Region of Waterloo
+f10 << outPHU10 << endl; // Grey Bruce
+f11 << outPHU11 << endl; // Wellington -Dufterim -Guelph
+f12 << outPHU12 << endl; // Halton Region
+f13 << outPHU13 << endl; // Hamilton
+f14 << outPHU14 << endl;// Niagara Region
+f15 << outPHU15 << endl; // Simcoe Muskoka
+f16 << outPHU16 << endl; // Peel
+f17 << outPHU17 << endl; // Toronto
+f18 << outPHU18 << endl;// York
+f19 << outPHU19 << endl; // Durham Region
+f20 << outPHU20 << endl; // Haliburton, Kawartha, Pine ridge
+f21 << outPHU21 << endl; // Peterborough
+f22 << outPHU22 << endl; // Haliburton,Kawartha, Pine ridge "PHU20 and PHU22 are as one phu have saperate boundaries"
+f23 << outPHU23 << endl; // Hasting and Prince edward
+f24 << outPHU24 << endl; // Renfrew country and District
+f25 << outPHU25 << endl; // Kingston, Frontenac, Lenox, and addington
+f26 << outPHU26 << endl; // Leeds, Grenville, and Lanark
+f27 << outPHU27 << endl; // Ottawa city
+f28 << outPHU28 << endl; // Eartern Ontario
+
+//cout << "############# END in ########### " << mpirank << endl;
+
+
+
+t2 = mpiWtime();
+
+if(mpirank ==0)
+{
+    cout << "Total Time taken  " << t2-t1 << endl;
+    cout << "Average Number of Picard Iteration  " << sumPicard/nt << endl;
+
+}
+
+
+IFMACRO(notrun)
+
+            cout << "Iteration count " << k << endl;
+            cout << "################## "  << endl;
+            cout << "################## "  << endl;
+            cout << "################## "  << endl;
+
+            //cout << "UkN is " << UkN[] << endl;
+
+
+
+ENDIFMACRO
+
+
+
+
+

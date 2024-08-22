@@ -1,0 +1,717 @@
+
+// ##### CODE FOR INTRUSIVE SSFEM FOR COVID - SEIRD Compartmental Model - Two Level DOMAIN DECOMPOSITION
+// Simple Square Domain - Approximating (1- A/N) to take only mean value of N.
+// Two Random Variable Case - Diffusion coefficient-1 nu_S,nu_E,nu_R ; DC-2 nu_I.
+
+
+// @ copyright Sudhi P V
+// Carleton University
+// Scalar Approach
+
+/*
+
+// Only works up to 10th order output expansion, RV case
+// Run " ff-mpirun -n 1 generate_2rv.edp -ordo $n" to generate required .edp files with different order of expansions
+
+// This produces "ssinit.edp, ssweakcomp.edp, ssolution.edp etc."
+
+// for clearing all the files run "sh clear.sh"
+
+//
+
+
+
+
+*/
+
+
+include "getARGV.idp"
+load "PETSc"
+macro dimension()2//
+include "macro_ddm.idp"       // additional DDM functions
+
+load "gmsh"
+
+real t1,t2;
+
+t1 = mpiWtime();
+
+
+// For solution output in vtk format
+load "iovtk"
+int[int] Order = [1]; // 1 - P1 lagrange elements 0 - P0
+
+real T = getARGV("-T",0.2);
+real deltaT = getARGV("-deltaT",0.1);
+
+real nt = lround(T/deltaT);
+
+if(mpirank == 0) cout << "T is " << T << " dt is " << deltaT << " nt is "<< nt << endl;
+
+
+int level = 2;
+int s = 2;
+
+Mat[int] MG(level);
+matrix[int] P(level - 1);
+
+mesh [int] Ths(level);
+mesh [int] The(level);
+mesh [int] Thi(level);
+mesh [int] Thr(level);
+mesh [int] Thd(level);
+
+real m = getARGV("-m", 50);
+real n = getARGV("-n", 50);
+
+Ths[level-1] = square(m,n);
+The[level-1] = Ths[level-1];
+Thi[level-1] = Ths[level-1];
+Thr[level-1] = Ths[level-1];
+Thd[level-1] = Ths[level-1];
+
+
+Mat[int] S(level);
+Mat[int] E(level);
+Mat[int] I(level);
+Mat[int] R(level);
+Mat[int] D(level);
+
+matrix[int] Ps(level - 1);
+matrix[int] Pe(level - 1);
+matrix[int] Pi(level - 1);
+matrix[int] Pr(level - 1);
+matrix[int] Pd(level - 1);
+
+if(mpirank == 0) cout << "Number of Vertices in coarse grid " << "  " + Ths[level-1].nv << endl;
+
+//if(mpirank == 0) cout << "Number of Vertices for fine mesh calculated  " << (m*2+1)^2  << endl; // Only for square mesh
+
+
+include "ssinit.edp"
+
+buildMatRecursive(Ths, s, level, Ps, S, Pk, mpiCommWorld);
+buildMatRecursive(The, s, level, Pe, E, Pk, mpiCommWorld);
+buildMatRecursive(Thi, s, level, Pi, I, Pk, mpiCommWorld);
+buildMatRecursive(Thr, s, level, Pr, R, Pk, mpiCommWorld);
+buildMatRecursive(Thd, s, level, Pd, D, Pk, mpiCommWorld);
+
+
+if(mpirank == 0) cout << "Number of Vertices for fine mesh original  " << Ths[0].nv  << endl; // Only for square mesh
+
+
+int[int] labs = labels(Ths[0]);
+
+if(mpirank == 0) cout<<labs<< endl;
+
+if(mpirank ==0)
+{
+    cout<<"order of input  "<<ordi<< endl;
+    cout<<"order of output  "<<ordo<< endl;
+    cout<<"Mean of Gaussian  "<< mug1<< endl;
+    cout<<"Sd of Gaussian  "<< sigmag1<< endl;
+
+    cout<<"Mean of Gaussian  "<< mug2<< endl;
+    cout<<"Sd of Gaussian  "<< sigmag2<< endl;
+
+    cout << "Size of linear System  " << (m*2+1)^2 * (ordo+1) << endl;
+
+}
+
+
+// Parameters
+
+real NLfact = getARGV("-NLfact",3);
+
+real A = 500.0;
+real betaI = 3.78e-4;
+real betaE = 3.78e-4;
+
+real mu = 0.0;
+real alpha = 0.0;
+real gammaR = (1./24);
+real gammaD = (1./160);
+real gammaE = 1./6;
+
+real sig = (1./7);
+real transrate = 0.0;
+
+/*
+real nuS = 3.94e-6;
+real nuE = 3.94e-6;
+real nuR = 3.94e-6;
+real nuI = 1e-8;
+*/
+
+if(mpirank ==0)
+{
+
+cout << "A is" << A << endl;
+cout << "betaI is" << betaI << endl;
+cout << "betE is" << betaE << endl;
+//cout << "nuS is" << nuS << endl;
+//cout << "nuE is" << nuE << endl;
+//cout << "nuR is" << nuR  << endl;
+cout << "mu is" <<  mu  << endl;
+cout << "alpha is" <<  alpha  << endl;
+cout << "gammaR is" << gammaR  << endl;
+cout << "gammaD is" << gammaD << endl;
+cout << "gammaE is" << gammaE << endl;
+//cout << "nuI is" << nuI << endl;
+cout << "sig is" << sig << endl;
+cout << "transrate is" << transrate << endl;
+
+
+}
+
+
+fespace Vh(Ths[0], P1);
+
+real cpu = clock();
+
+macro Grad(u) [dx(u),dy(u)]         // EOM
+
+// Initial Condition
+
+real tl =1000.0*NLfact;
+
+Vh total = tl;
+
+
+Vh [real] Uini(5);
+
+
+func Iinitfunc = 0.1*tl * exp(-10* ( pow(x-0.5,2) + pow(y-0.5,2) ) ); // For square mesh
+
+// For Ontario mesh
+//func Iinitfunc = 0.1*tl * exp(-10* ( pow(x-(-79.6),2) + pow(y-43.6,2) ) );
+
+// Infected Population
+Uini[2] = Iinitfunc; // Projection on to the FE space - I think its same as interpolation in FEniCS and doesn't involve minimizing the norm by projecting on to new FE space.
+
+real Iini = int2d(Ths[0])(Uini[2]);
+
+
+//Exposed Population
+real Eini = transrate * Iini;
+Uini[1] =Eini;
+
+//Recovered Population
+real Rini= 0.0;
+Uini[3] = Rini;
+//Deceased Population
+real Dini= 0.0;
+Uini[4] = Dini;
+
+Uini[0] = total - Uini[1] - Uini[2] - Uini[3]- Uini[4];
+
+
+real Sini = int2d(Ths[0])(Uini[0]);
+//plot(Uini[0], wait =1);
+
+
+// ############### Saving Initial Conditions ##############################
+
+//savevtk("./ini/sus_ini.vtu", Ths[0], Uini[0] , bin = 1, order = Order);
+
+//savevtk("./ini/exp_ini.vtu", Ths[0], Uini[1] , bin = 1, order = Order);
+
+//savevtk("./ini/inf_ini.vtu", Ths[0], Uini[2] , bin = 1, order = Order);
+
+//savevtk("./ini/rec_ini.vtu", Ths[0], Uini[3] , bin = 1, order = Order);
+
+//savevtk("./ini/dec_ini.vtu", Ths[0], Uini[4] , bin = 1, order = Order);
+
+
+// ############################################
+
+
+if(mpirank == 0) cout<< "Total number of Susceptible people in sub domain 0 " << Sini << endl;
+
+
+//cout << UprevS1[] << endl;
+
+/*
+[UprevS,UprevS1,UprevS2,UprevS3] = [Uini[0], 0, 0, 0];
+[UprevE,UprevE1,UprevE2,UprevE3] = [Uini[1], 0, 0, 0];
+[UprevI,UprevI1,UprevI2,UprevI3] = [Uini[2], 0, 0, 0];
+[UprevR,UprevR1,UprevR2,UprevR3] = [Uini[3], 0, 0, 0];
+[UprevD,UprevD1,UprevD2,UprevD3] = [Uini[4], 0, 0, 0];
+cout << "Uprev is " << UprevS[] << endl;
+cout << "Uini is " << Uini[0][] << endl;
+
+*/
+
+
+// #####################################################################################################
+// ##################### WEAK FORMS #####################################################################
+
+fespace Wh(Ths[0], Pk);
+
+Wh <real> def(UprevS); // Previous Time step
+Wh <real> def(UprevE); // Previous Time step
+Wh <real> def(UprevI); // Previous Time step
+Wh <real> def(UprevR); // Previous Time step
+Wh <real> def(UprevD); // Previous Time step
+
+
+Wh <real> def(UkS); // Previous iterate for S
+Wh <real> def(UkE); // Previous iterate E
+Wh <real> def(UkI); // Previous iterate I
+Wh <real> def(UkR); // Previous iterate R
+Wh <real> def(UkD); // Previous iterate D
+
+Wh <real> def(UkN); // Previous iterate N
+
+
+//cout << UprevN[] << endl;
+//cout << UprevAN[] << endl;
+
+//exit(1);
+
+ofstream ff("./compartment.dat");
+ofstream fg("./compartment_sd.dat");
+
+
+real[int, int] out(nt,5);
+real[int, int] outsd(nt,5);
+
+real[int, int] node1(nt,outPC);
+real[int, int] node2(nt,outPC);
+
+
+real Cd = 0.0; // Just for using the NL poisson code, linear part is zero
+
+
+set(S, Ps, sparams = "-pc_type mg -pc_mg_type multiplicative -ksp_type fgmres -ksp_pc_side right -ksp_converged_reason -ksp_max_it 200");
+set(S, 0, sparams = "-mg_coarse_ksp_type gmres -mg_coarse_pc_type hypre -mg_coarse_ksp_converged_reason", bs=outPC);
+set(S, level - 1, sparams = "-mg_levels_pc_type asm -mg_levels_sub_pc_type lu -mg_levels_sub_pc_factor_mat_solver_type mumps");
+
+set(E, Pe, sparams = "-pc_type mg -pc_mg_type multiplicative -ksp_type fgmres -ksp_pc_side right -ksp_max_it 200");
+set(E, 0, sparams = "-mg_coarse_ksp_type gmres -mg_coarse_pc_type hypre -mg_coarse_ksp_converged_reason", bs=outPC);
+set(E, level - 1, sparams = "-mg_levels_pc_type asm -mg_levels_sub_pc_type lu -mg_levels_sub_pc_factor_mat_solver_type mumps");
+
+set(I, Pi, sparams = "-pc_type mg -pc_mg_type multiplicative -ksp_type fgmres -ksp_pc_side right -ksp_max_it 200");
+set(I, 0, sparams = "-mg_coarse_ksp_type gmres -mg_coarse_pc_type hypre -mg_coarse_ksp_converged_reason", bs=outPC);
+set(I, level - 1, sparams = "-mg_levels_pc_type asm -mg_levels_sub_pc_type lu -mg_levels_sub_pc_factor_mat_solver_type mumps");
+
+set(R, Pr, sparams = "-pc_type mg -pc_mg_type multiplicative -ksp_type fgmres -ksp_pc_side right -ksp_max_it 200");
+set(R, 0, sparams = "-mg_coarse_ksp_type gmres -mg_coarse_pc_type hypre -mg_coarse_ksp_converged_reason", bs=outPC);
+set(R, level - 1, sparams = "-mg_levels_pc_type asm -mg_levels_sub_pc_type lu -mg_levels_sub_pc_factor_mat_solver_type mumps");
+
+set(D, Pd, sparams = "-pc_type mg -pc_mg_type multiplicative -ksp_type fgmres -ksp_pc_side right -ksp_max_it 200");
+set(D, 0, sparams = "-mg_coarse_ksp_type gmres -mg_coarse_pc_type hypre -mg_coarse_ksp_converged_reason", bs=outPC);
+set(D, level - 1, sparams = "-mg_levels_pc_type asm -mg_levels_sub_pc_type lu -mg_levels_sub_pc_factor_mat_solver_type mumps");
+
+
+
+Wh <real> def(US);
+Wh <real> def(UE);
+Wh <real> def(UI);
+Wh <real> def(UR);
+Wh <real> def(UD);
+
+real [int] rhsS(Wh.ndof);
+real [int] rhsE(Wh.ndof);
+real [int] rhsI(Wh.ndof);
+real [int] rhsR(Wh.ndof);
+real [int] rhsD(Wh.ndof);
+
+real [int] diffS(Wh.ndof);
+real [int] diffE(Wh.ndof);
+real [int] diffI(Wh.ndof);
+real [int] diffR(Wh.ndof);
+real [int] diffD(Wh.ndof);
+
+
+real errL2,errsum;
+real den = 0;
+
+Vh [real] solS(outPC);
+Vh [real] solE(outPC);
+Vh [real] solI(outPC);
+Vh [real] solR(outPC);
+Vh [real] solD(outPC);
+
+Vh QN;
+Vh Nsum;
+
+real glob, locint;
+
+real [int] locPETScS(Wh.ndof);
+real [int] locPETScE(Wh.ndof);
+real [int] locPETScI(Wh.ndof);
+real [int] locPETScR(Wh.ndof);
+real [int] locPETScD(Wh.ndof);
+
+real tp1, tp2,tt1,tt2;
+
+real[int, int] iterP(nt,1);
+real sumPicard;
+
+real tolP = 1e-8;
+
+real t = 0;
+
+include "ssweakcomp.edp"
+
+Vh UstdS,UstdE,UstdI,UstdR,UstdD;
+
+for(int n =0; n < nt; n++)
+{
+
+    // Previous Time step Solutions
+    t = (n+1)*deltaT;
+
+    tt1 = mpiWtime();
+
+
+    UkS[] = UprevS[];
+    UkE[] = UprevE[];
+    UkI[] = UprevI[];
+    UkR[] = UprevR[];
+    UkD[] = UprevD[];
+
+
+    for(int k =0; k < 50; k++)
+        {
+
+            include "uknsum.edp"
+
+            QN = (1- A/UkN);
+
+            tp1 = mpiWtime();
+
+
+            for(int l=0;l<level;l++)
+
+                {
+
+                    fespace Whc(Ths[l], Pk);
+
+                    // Manual case
+                    // keep 'UNL' variable same as solution vector variable
+                    varf stocovidS(def(US),def(VS)) = int2d(Ths[l])( UtransV(US,VS) + deltaT * QN * betaI *  coeffmultbetaSI(US,VS)
+                                                                    + deltaT * QN * betaE *  coeffmultbetaSE(US,VS)
+                                                                    + deltaT *  coeffmultdiff(US,VS))
+                                                            + int2d(Ths[l])( UtransV(UprevS,VS) );
+
+
+                    varf stocovidE(def(UE),def(VE)) = int2d(Ths[l])( UtransV(UE,VE)
+                                                     - deltaT * betaE * QN * coeffmultbetaES(UE,VE)
+                                                     + deltaT * (sig + gammaE) * UtransV(UE,VE)
+                                                     + deltaT *  coeffmultdiff(UE,VE))
+                                                     + int2d(Ths[l])( UtransV(UprevE,VE) + deltaT * betaI * QN * coeffmultbetaSI(UkS,VE));
+
+
+                     varf stocovidI(def(UI),def(VI)) = int2d(Ths[l])( UtransV(UI,VI)
+                                                     + deltaT * (gammaD + gammaR) * UtransV(UI,VI)
+                                                     + deltaT *  coeffmultdiffI(UI,VI))
+                                                     + int2d(Ths[l])( UtransV(UprevI,VI) + deltaT * sig * UtransV(UkE,VI) );
+
+
+                    varf stocovidR(def(UR),def(VR)) = int2d(Ths[l])( UtransV(UR,VR)
+                                                     + deltaT *  coeffmultdiff(UR,VR))
+                                                     + int2d(Ths[l])( UtransV(UprevR,VR) + deltaT * gammaR * UtransV(UkI,VR) + deltaT * gammaE * UtransV(UkE,VR));
+
+
+                    varf stocovidD(def(UD),def(VD)) = int2d(Ths[l])( UtransV(UD,VD) )
+                                                     + int2d(Ths[l])( UtransV(UprevD,VD) + deltaT * gammaD * UtransV(UkI,VD));
+
+
+                    // for structured square weakform1. // for unstructured square weakform2.
+                    //include "ssweakform1.edp"
+
+
+                    S[l] = stocovidS(Whc,Whc,tgv=-1);
+                    if(l==0) rhsS = stocovidS(0,Whc,tgv=-1);
+
+                    E[l] = stocovidE(Whc,Whc,tgv=-1);
+                    if(l==0) rhsE = stocovidE(0,Whc,tgv=-1);
+
+
+                    I[l] = stocovidI(Whc,Whc,tgv=-1);
+                    if(l==0) rhsI = stocovidI(0,Whc,tgv=-1);
+
+                    R[l] = stocovidR(Whc,Whc,tgv=-1);
+                    if(l==0) rhsR = stocovidR(0,Whc,tgv=-1);
+
+                    D[l] = stocovidD(Whc,Whc,tgv=-1);
+                    if(l==0) rhsD = stocovidD(0,Whc,tgv=-1);
+
+                }
+
+
+            //ObjectView(S[0], format = "matlab", name = "S_"+k+".m");
+            set(S[0],setup = 1);
+            US[] = S[0]^(-1) * rhsS;
+
+//            cout << rhsS << endl;
+            //cout << " s is " << US[] << endl;
+
+            set(E[0],setup = 1);
+            UE[] = E[0]^(-1) * rhsE;
+            //cout << " e is " << UE[] << endl;
+
+
+            set(I[0],setup = 1);
+            UI[] = I[0]^(-1) * rhsI;
+            //cout << " I is " << UI[] << endl;
+
+
+            set(R[0],setup = 1);
+            UR[] = R[0]^(-1) * rhsR;
+            //cout << " R is " << UR[] << endl;
+
+
+            set(D[0],setup = 1);
+            UD[] = D[0]^(-1) * rhsD;
+            //cout << " D is " << UD[] << endl;
+
+        // Local Error calculation based on previous iterate
+
+
+            diffS = (US[] - UkS[]);
+            diffE = (UE[] - UkE[]);
+            diffI = (UI[] - UkI[]);
+            diffR = (UR[] - UkR[]);
+            diffD = (UD[] - UkD[]);
+
+            errL2 = S[0](diffS,diffS)+ S[0](diffE,diffE) + S[0](diffI,diffI) + S[0](diffR,diffR) + S[0](diffD,diffD) ;
+
+            den = S[0](UprevS[],UprevS[])+ S[0](UprevE[],UprevE[]) + S[0](UprevI[],UprevI[]) + S[0](UprevR[],UprevR[]) + S[0](UprevD[],UprevD[]) ;
+
+            errsum = sqrt(errL2)/sqrt(den);
+
+        // ############################################################################
+
+
+            //cout << "err is" << errsum << endl;
+
+            //[Uprev, Uprev1, Uprev2] = [UNL,UNL1, UNL2];
+
+            UkS[] = US[];
+            UkE[] = UE[];
+            UkI[] = UI[];
+            UkR[] = UR[];
+            UkD[] = UD[];
+
+
+            tp2 = mpiWtime() - tp1;
+
+            if(mpirank ==0)
+            {
+                cout << "iteration " << k+1 +"     "<< errsum << endl;
+                //shcout << "time for 1 Picard Iteration " << tp2 << endl;
+            }
+
+            // ####################################
+            if(errsum < tolP)
+            {
+                iterP(n,0) = k;
+                if(mpirank ==0) cout<< "Finished Picard Loop"<< endl;
+                break;
+            }
+
+
+            if(k == 49)
+            {
+            if(mpirank ==0) cout << "exiting without convergence in" << k+1 <<"iterations with error of" << errL2 << endl;
+            break;
+            }
+
+
+
+        } // Finished Picard Loop
+
+
+    sumPicard += iterP(n,0);
+
+
+    include "ssolution.edp"
+
+    // Calculation of standard deviation
+
+    UstdS = 0;
+    UstdE = 0;
+    UstdI = 0;
+    UstdR = 0;
+    UstdD = 0;
+
+
+    for(int npc=1; npc<outPC; npc++)
+    {
+        UstdS = UstdS + solS[npc]^2;
+        UstdE = UstdE + solE[npc]^2;
+        UstdI = UstdI + solI[npc]^2;
+        UstdR = UstdR + solR[npc]^2;
+        UstdD = UstdD + solD[npc]^2;
+    }
+
+    UstdS = sqrt(UstdS);
+    UstdE = sqrt(UstdE);
+    UstdI = sqrt(UstdI);
+    UstdR = sqrt(UstdR);
+    UstdD = sqrt(UstdD);
+
+    if(n % 1 == 0)
+    {
+
+        for(int k =0; k < outPC ; k++)
+        {
+        savevtk("./output/uI"+k+".vtu", Ths[0], solI[k],bin = 1, order = Order, append = true);
+        }
+
+        savevtk("./output/uI_sd"+".vtu", Ths[0], UstdI,bin = 1, order = Order, append = true);
+        //savevtk("./output/us.vtu", Ths[0], solS[0] , bin = 1, order = Order, append = true);
+        //savevtk("./output/ue.vtu", Ths[0], solE[0] , bin = 1, order = Order, append = true);
+        //savevtk("./output/ui.vtu", Ths[0], solI[0] , bin = 1, order = Order, append = true);
+        //savevtk("./output/ui_1.vtu", Ths[0], solI[1] , bin = 1, order = Order, append = true);
+        //savevtk("./output/ui_1.vtu", Ths[0], solI[1] , bin = 1, order = Order, append = true);
+        //savevtk("./output/ur.vtu", Ths[0], solR[0] , bin = 1, order = Order, append = true);
+        //savevtk("./output/ud.vtu", Ths[0], solD[0] , bin = 1, order = Order, append = true);
+
+    }
+
+
+    UprevS[] = US[];
+    UprevE[] = UE[];
+    UprevI[] = UI[];
+    UprevR[] = UR[];
+    UprevD[] = UD[];
+
+    tt2 = mpiWtime();
+
+    if(mpirank ==0)
+    {
+    cout << "################## "  << endl;
+    cout << "########Finished Time step number  " << n+1 <<"######### "  << endl;
+    cout << "Time taken for 1 timestep" << tt2-tt1 << endl;
+    cout << "################## "  << endl;
+    }
+
+
+    ChangeNumbering(S[0], US[], locPETScS);
+    ChangeNumbering(S[0], US[], locPETScS, inverse = true, exchange = false);
+
+    ChangeNumbering(E[0], UE[], locPETScE);
+    ChangeNumbering(E[0], UE[], locPETScE, inverse = true, exchange = false);
+
+    ChangeNumbering(I[0], UI[], locPETScI);
+    ChangeNumbering(I[0], UI[], locPETScI, inverse = true, exchange = false);
+
+    ChangeNumbering(R[0], UR[], locPETScR);
+    ChangeNumbering(R[0], UR[], locPETScR, inverse = true, exchange = false);
+
+    ChangeNumbering(D[0], UD[], locPETScD);
+    ChangeNumbering(D[0], UD[], locPETScD, inverse = true, exchange = false);
+
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(Ths[0])(solS[0]);
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "susceptible mean" << glob << endl;
+    out(n,0) = glob;
+
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(The[0])(solE[0]);
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "exposed mean" << glob << endl;
+    out(n,1) = glob;
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(Thi[0])(solI[0]);
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "infected mean" << glob << endl;
+    out(n,2) = glob;
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(Thr[0])(solR[0]);
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "recovered mean" << glob << endl;
+    out(n,3) = glob;
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(Thd[0])(solD[0]);
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "deceased mean" << glob << endl;
+    out(n,4) = glob;
+
+
+
+// Integrating sd of sol
+    locint = 0;
+    glob = 0;
+    locint = int2d(Ths[0])(UstdS);
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "susceptible sd" << glob << endl;
+    outsd(n,0) = glob;
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(The[0])(UstdE);
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "exposed sd" << glob << endl;
+    outsd(n,1) = glob;
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(Thi[0])(UstdI);
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "infected sd" << glob << endl;
+    outsd(n,2) = glob;
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(Thr[0])(UstdR);
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "recovered sd" << glob << endl;
+    outsd(n,3) = glob;
+
+    locint = 0;
+    glob = 0;
+    locint = int2d(Thd[0])(UstdD);
+    mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+    if(mpirank == 0) cout << "deceased sd" << glob << endl;
+    outsd(n,4) = glob;
+
+
+
+} // Finished Time step
+
+ff << out << endl;
+fg << outsd << endl;
+
+t2 = mpiWtime();
+
+if(mpirank ==0)
+{
+    cout << "Total Time taken  " << t2-t1 << endl;
+    cout << "Average Number of Picard Iteration  " << sumPicard/nt << endl;
+
+}
+
+
+IFMACRO(notrun)
+
+            cout << "Iteration count " << k << endl;
+            cout << "################## "  << endl;
+            cout << "################## "  << endl;
+            cout << "################## "  << endl;
+
+            //cout << "UkN is " << UkN[] << endl;
+
+
+
+ENDIFMACRO
+
+
+
+
+

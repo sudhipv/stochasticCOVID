@@ -1,0 +1,576 @@
+
+//@Copyright
+// Sudhi P V
+// Civil and Environmental Engineering
+// Carleton University
+
+// MCS Simulation for COVID Problem  Square Domain
+
+
+bool debug = true;
+
+load "PETSc"
+macro dimension()2// EOM            // 2D or 3D
+include "macro_ddm.idp"
+
+real t1,t2;
+
+t1 = mpiWtime();
+
+
+// For solution output in vtk format
+load "iovtk"
+int[int] Order = [1]; // 1 - P1 lagrange elements 0 - P0
+
+
+load "gmsh"
+
+mesh Ths = square(50,50);
+//savevtk("Th.vtu",Ths);
+
+
+real T = getARGV("-T",30.0);
+real deltaT = getARGV("-deltaT",0.1);
+
+real nt = lround(T/deltaT);
+
+if(mpirank == 0) cout << "T is " << T << " dt is " << deltaT << " nt is "<< nt << endl;
+
+
+func Pk = P1;                       // finite element space
+
+buildDmesh(Ths);
+
+fespace Vh(Ths, Pk);
+
+
+// Parameters
+
+real NLfact = getARGV("-NLfact",3);
+
+real A = 500.0;
+real betaI = 3.78e-4;
+real betaE = 3.78e-4;
+
+real nuS = 0.0;
+real nuE = 0.0;
+real nuR = 0.0;
+
+real mu = 0.0;
+real alpha = 0.0;
+real gammaR = (1./24);
+real gammaD = (1./160);
+real gammaE = 1./6;
+real nuI = 0.0;
+real sig = (1./7);
+real transrate = 0.0;
+
+
+Vh [real] Uk(5); // Kth iteration solution
+Vh [real] Uprev(5); // Previous Time step solution
+Vh [real] U(5); // Current Iteration solution
+
+// ################################################
+// Setting up Initial Condition
+real tl =1000.0*NLfact;
+
+Vh total = tl;
+
+
+Vh [real] Uini(5);
+
+
+func Iinitfunc = 0.1*tl * exp(-10* ( pow(x-0.5,2) + pow(y-0.5,2) ) ); // For square mesh
+
+// Infected Population
+Uini[2] = Iinitfunc; // Projection on to the FE space - I think its same as interpolation in FEniCS and doesn't involve minimizing the norm by projecting on to new FE space.
+
+real Iini = int2d(Ths)(Uini[2]);
+
+
+//Exposed Population
+real Eini = transrate * Iini;
+Uini[1] =Eini;
+
+//Recovered Population
+real Rini= 0.0;
+Uini[3] = Rini;
+//Deceased Population
+real Dini= 0.0;
+Uini[4] = Dini;
+
+
+
+Uini[0] = total - Uini[1] - Uini[2] - Uini[3]- Uini[4];
+
+
+real Sini = int2d(Ths)(Uini[0]);
+
+
+if(mpirank == 0) cout<< "Total number of Susceptible people in sub domain 0 " << Sini << endl;
+
+
+// ################################################
+
+
+real errorl2;
+real tolP = getARGV("-tolP",1e-8);
+
+real t = 0;
+
+verbosity = 0;
+
+real[int, int] out(nt,5);
+
+real[int, int] node1(nt,5);
+real[int, int] node2(nt,5);
+
+real[int, int] iterP(nt,1);
+real sumPicard;
+
+real [int,int] ttotal(nt,1);
+
+//ofstream ff("./compartment_scalar1L.dat");
+
+//ofstream fi("./N_scalar1L.dat");
+
+//ofstream fj("./iterScal1L"+ NLfact+".dat");
+
+
+Vh [real] ukglob(5);
+Vh [real] uglob(5);
+Vh Utotalsub;
+
+real tt1, tt2, tp1,tp2;
+
+macro Grad(u) [dx(u), dy(u)] // EOM
+
+
+Mat S,E,I,R,D;
+
+createMat(Ths,S,Pk);
+createMat(Ths,E,Pk);
+createMat(Ths,I,Pk);
+createMat(Ths,R,Pk);
+createMat(Ths,D,Pk);
+
+
+ifstream file1("./nu.txt");
+
+real nS,nI, k1,k2,k3;
+
+nS = 10000;
+
+
+real [int,int] Cd(nS,2);
+
+for(int i = 0; i < nS ; i++)
+{
+
+    file1 >> Cd(i,0) >> Cd(i,1);
+
+}
+
+//cout << Cd;
+
+//exit(1);
+
+Vh vS,vE, vI, vR, vD;
+Vh Scur, Ecur,Icur, Rcur, Dcur;
+
+Vh Sprev,Eprev,Iprev,Rprev,Dprev, Nprev;
+
+Vh Sk,Ek,Ik,Rk,Dk, Nk;
+
+Vh rhsS,solS, rhsE, solE, rhsI,solI, rhsR,solR, rhsD,solD;
+
+real [int] diff(Vh.ndof);
+
+real den, glob, locint;
+
+real [int] locPETSc;
+
+
+real tc1,tc2,tc3,tc4,tc5,tc6;
+
+
+real sN = getARGV("-sn", 0); // Starting point
+real samS = getARGV("-ss", 5); // Number of samples
+
+real [int,int] Cdsample(samS,2);
+
+Cdsample(:,0) = Cd(sN:sN+samS-1,0);
+Cdsample(:,1) = Cd(sN:sN+samS-1,1);
+
+/*
+Cdsample(0,0) = Cd(987,0);
+Cdsample(1,0) = Cd(2001,0);
+Cdsample(2,0) = Cd(3056,0);
+Cdsample(3,0) = Cd(572,0);
+Cdsample(4,0) = Cd(987,0);
+*/
+
+real [int,int] MCSavgS(nt,samS);
+real [int,int] MCSavgE(nt,samS);
+real [int,int] MCSavgI(nt,samS);
+real [int,int] MCSavgR(nt,samS);
+real [int,int] MCSavgD(nt,samS);
+real [int,int] MCSnodeI1(nt,samS);
+real [int,int] MCSnodeI2(nt,samS);
+
+real [int,int] MCSnodespaceI(Vh.ndof,samS);
+real [int,int] MCSnodespaceS(Vh.ndof,samS);
+
+
+for (int ns = 0; ns < samS ; ns++)
+
+{
+
+    nuS = nuR = nuE = Cdsample(ns,0);
+    nuI = Cdsample(ns,1);
+
+
+    cout << "sample values are " << Cdsample(ns,0) << " and " << Cdsample(ns,1) <<  endl;
+    cout << "nuS is " << nuS << endl;
+    cout << "nuE is " << nuE << endl;
+    cout << "nuI is " << nuI << endl;
+    cout << "nuR is " << nuR << endl;
+
+
+    for (int i =0; i<5; ++i)
+    {
+        Uprev[i] = Uini[i];
+        Uk[i] = Uini[i];
+    }
+
+
+    // Time Loop
+    for (int i = 0; i < nt ; ++i)
+    {
+
+        // Previous Time step Solutions
+        t = (i+1)*deltaT;
+
+        tt1 = mpiWtime();
+
+        Sprev = Uprev[0];
+        Eprev = Uprev[1];
+        Iprev = Uprev[2];
+        Rprev = Uprev[3];
+        Dprev = Uprev[4];
+
+
+        Nprev = Sprev + Eprev + Iprev + Rprev + Dprev;
+
+
+        for (int k =0; k <50 ; ++k)
+        {
+                // Kth Iteration Solutions for Newton/Picard Linearization
+
+
+            tp1 = mpiWtime();
+
+
+            errorl2 = 0.0;
+
+            Sk = Uk[0];
+            Ek = Uk[1];
+            Ik = Uk[2];
+            Rk = Uk[3];
+            Dk = Uk[4];
+
+
+            Nk = Sk+Ek+Ik+Rk+Dk;
+
+            // ################ Loop for adding coarse space ####################################################
+
+
+
+            tc1 = mpiWtime();
+
+
+
+                // ########################Implicit - Weak Forms ################################################
+
+
+                varf susceptible(Scur, vS) = int2d(Ths)(Scur * vS + deltaT * ( ( 1.0- A/Nk) * betaI * Scur * Ik * vS)
+                                                       + deltaT * ( ( 1.0- A/Nk) * betaE * Scur * Ek * vS)
+                                                       + deltaT * ( Nk * mu * Scur * vS)
+                                                       + deltaT * ( Nk * nuS * Grad(Scur)'*Grad(vS))  )
+                                                       + int2d(Ths)(Sprev * vS + deltaT*alpha*Nk*vS) ;
+
+
+
+                varf exposed(Ecur, vE) = int2d(Ths)(Ecur * vE -  deltaT * ( ( 1.0- A/Nk) * betaE * Sk * Ecur * vE)
+                                                       + deltaT * ( (sig + gammaE) *  Ecur * vE)
+                                                       + deltaT * ( Nk * mu * Ecur * vE)
+                                                       + deltaT * ( Nk * nuE *  (Grad(Ecur)'*Grad(vE)) ) )
+                                                       + int2d(Ths)( Eprev * vE + deltaT * ( ( 1.0- A/Nk) * betaI * Sk * Ik * vE)  ) ;
+
+
+
+                varf infected(Icur, vI) = int2d(Ths)(Icur * vI + deltaT * ( (gammaD + gammaR)*Icur * vI)
+                                                       + deltaT * ( Nk * mu * Icur * vI)
+                                                       + deltaT * ( Nk * nuI *  (Grad(Icur)'*Grad(vI)) ) )
+                                                       + int2d(Ths)(Iprev * vI + deltaT * ( sig * Ek * vI) );
+
+
+                varf recovered(Rcur, vR) = int2d(Ths)( Rcur * vR + deltaT * ( Nk * mu * Rcur * vR)
+                                                       + deltaT * ( Nk * nuR *  (Grad(Rcur)'*Grad(vR)) ) )
+                                                       + int2d(Ths)(Rprev * vR + deltaT * ( gammaR * Ik * vR) + deltaT * ( gammaE *Ek * vR) );
+
+
+
+
+                varf deceased(Dcur, vD) = int2d(Ths)( Dcur * vD ) + int2d(Ths)( Dprev * vD + deltaT * ( gammaD * Ik * vD) );
+
+
+                S = susceptible(Vh,Vh, tgv = -1);
+                E = exposed(Vh,Vh, tgv = -1);
+                I = infected(Vh,Vh, tgv = -1);
+                R = recovered(Vh,Vh, tgv = -1);
+                D = deceased(Vh,Vh, tgv = -1);
+
+
+                rhsS[] = susceptible(0,Vh, tgv = -1);
+                rhsE[] = exposed(0,Vh, tgv = -1);
+                rhsI[] = infected(0,Vh, tgv = -1);
+                rhsR[] = recovered(0,Vh, tgv = -1);
+                rhsD[] = deceased(0,Vh, tgv = -1);
+
+
+            tc2 = mpiWtime();
+            //cout << "time for assembly " << tc2-tc1 << endl;
+
+            tc3 = mpiWtime();
+            set(S, setup = 1);
+            U[0][] = S^(-1) * rhsS[]; // Whether want to use updated solution or not ?
+            //Sk = U[0];
+
+            set(E, setup = 1);
+            U[1][] = E^(-1) * rhsE[];
+            //Ek = U[1];
+
+            set(I, setup = 1);
+            U[2][] = I^(-1) * rhsI[];
+            //Ik = U[2];
+
+            //if(mpirank == 0) cout<< "Recovered"<<endl;
+            set(R, setup = 1);
+            U[3][] = R^(-1) * rhsR[];
+            //Rk = U[3];
+
+            //if(mpirank == 0) cout<< "Deceased"<<endl;
+            set(D, setup = 1);
+            U[4][] = D^(-1) * rhsD[];
+            //Dk = U[4];
+
+            tc4 = mpiWtime();
+            //cout << "time for solve " << tc4-tc3 << endl;
+
+    // ############################################################################
+
+
+    // ############################################################################
+
+            diff = 0;
+            errorl2 = 0;
+            den = 0;
+            for(int j=0;j<5;++j)
+            {
+
+            diff = U[j][] - Uk[j][];
+
+            den += S(Uprev[j][], Uprev[j][]); // Changed after Victorita's suggestion
+            errorl2 += S(diff, diff);
+
+            }
+
+            errorl2 = sqrt(errorl2)/sqrt(den);
+    //     ##########################################################################
+
+            // Update
+
+            tc5 = mpiWtime();
+            for(int j=0;j<5;++j)
+            {
+
+                Uk[j] = U[j];
+            }
+            tc6 = mpiWtime();
+            //cout << "time for update " << tc6-tc5 << endl;
+
+            tp2 = mpiWtime();
+
+            if(mpirank ==0)
+            {
+                cout << "iteration " << k +"     "<< errorl2 << endl;
+                //cout << "time for 1 Picards iteration " << tp2 - tp1 << endl;
+            }
+
+            // ####################################
+            if(errorl2 < tolP)
+            {
+                iterP(i,0) = k;
+                break;
+            }
+
+
+        } // Finished Picard Loop
+
+
+        sumPicard += iterP(i,0);
+    // Update new timestep solution
+
+        for(int j=0;j<5;++j)
+        {
+
+            Uprev[j] = U[j];
+
+        }
+
+
+        locint = 0;
+        glob = 0;
+
+        Utotalsub = U[0] + U[1] + U[2] + U[3] + U[4];
+
+        for(int l=0;l<5; ++l)
+        {
+
+            ChangeNumbering(S, U[l][], locPETSc);
+            ChangeNumbering(S, U[l][], locPETSc, inverse = true, exchange = false);
+
+            locint = int2d(Ths)(U[l]);
+
+            mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+
+            out(i,l) = glob;
+            node1(i,l) = U[l][](1050);
+            node2(i,l) = U[l][](2050);
+
+
+        }
+
+
+    // Calculating N over whole domain
+
+        ChangeNumbering(S, Utotalsub[], locPETSc);
+        ChangeNumbering(S, Utotalsub[], locPETSc, inverse = true, exchange = false);
+
+        locint = int2d(Ths)(Utotalsub);
+
+        mpiAllReduce(locint,glob, mpiCommWorld, mpiSUM);
+
+        ttotal(i,0) = glob;
+
+
+        tt2 = mpiWtime();
+
+        if(mpirank == 0)
+
+        {
+
+        cout << "Time step number " << i + " time " << t + "days" << endl;
+        //cout << "Time taken for 1 timestep" << tt2-tt1 << endl;
+
+        }
+
+
+
+        if(i == 5)
+        {
+             MCSnodespaceI(:,ns) = U[2][];
+             MCSnodespaceS(:,ns) = U[0][];
+        }
+
+
+    MCSavgS(:,ns) = out(:,0);
+    MCSavgE(:,ns) = out(:,1);
+    MCSavgI(:,ns) = out(:,2);
+    MCSavgR(:,ns) = out(:,3);
+    MCSavgD(:,ns) = out(:,4);
+    MCSnodeI1(:,ns) = node1(:,2);
+    MCSnodeI2(:,ns) = node2(:,2);
+
+
+
+    // End of Time loop
+
+    }
+
+
+
+    cout << "############################################################################"<< endl;
+    cout << "####################Sample number " << ns << "#####################"<< endl;
+    cout << "##########################################################################"<< endl;
+
+
+    if(ns == 500)
+    {
+        ofstream file2("MCS_avgS"+sN+".dat");
+        file2 << MCSavgS;
+        ofstream file3("MCS_avgE"+sN+".dat");
+        file3 << MCSavgE;
+        ofstream file4("MCS_avgI"+sN+".dat");
+        file4 << MCSavgI;
+        ofstream file5("MCS_avgR"+sN+".dat");
+        file5 << MCSavgR;
+        ofstream file6("MCS_avgD"+sN+".dat");
+        file6 << MCSavgD;
+        ofstream file7("MCS_nodeI1_"+sN+".dat");
+        file7 << MCSnodeI1;
+        ofstream file8("MCS_nodeI2_"+sN+".dat");
+        file8 << MCSnodeI2;
+        ofstream file9("MCSnodespaceI"+sN+".dat");
+        file9 << MCSnodespaceI;
+        ofstream file10("MCSnodespaceS"+sN+".dat");
+        file10 << MCSnodespaceS;
+    }
+
+
+} // End of MCS loop
+
+ofstream file2("MCS_avgS"+sN+".dat");
+file2 << MCSavgS;
+ofstream file3("MCS_avgE"+sN+".dat");
+file3 << MCSavgE;
+ofstream file4("MCS_avgI"+sN+".dat");
+file4 << MCSavgI;
+ofstream file5("MCS_avgR"+sN+".dat");
+file5 << MCSavgR;
+ofstream file6("MCS_avgD"+sN+".dat");
+file6 << MCSavgD;
+ofstream file7("MCS_nodeI1"+sN+".dat");
+file7 << MCSnodeI1;
+ofstream file8("MCS_nodeI2"+sN+".dat");
+file8 << MCSnodeI2;
+ofstream file9("MCSnodespaceI"+sN+".dat");
+file9 << MCSnodespaceI;
+ofstream file10("MCSnodespaceS"+sN+".dat");
+file10 << MCSnodespaceS;
+
+
+t2 = mpiWtime();
+
+if(mpirank ==0)
+{
+    cout << "Total Time taken  " << t2-t1 << endl;
+
+}
+
+
+//ff << out << endl;
+//fg << node1 << endl;
+//fh << node2 << endl;
+//fi << ttotal << endl;
+//fj << iterP << endl;
+
+
+//cout << "############# END in ########### " << mpirank << endl;
+
+
+
+// ###########################################################################################################################
+
+

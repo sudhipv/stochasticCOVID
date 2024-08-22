@@ -1,0 +1,67 @@
+macro UtransV(u,v)(u*v + u#1*v#1 + u#2*v#2 + u#3*v#3)//EOM
+[UprevS,UprevS1,UprevS2,UprevS3] =[Uini[0],0,0,0];
+[UprevE,UprevE1,UprevE2,UprevE3] =[Uini[1],0,0,0];
+[UprevI,UprevI1,UprevI2,UprevI3] =[Uini[2],0,0,0];
+[UprevR,UprevR1,UprevR2,UprevR3] =[Uini[3],0,0,0];
+[UprevD,UprevD1,UprevD2,UprevD3] =[Uini[4],0,0,0];
+
+
+
+[UkS,UkS1,UkS2,UkS3] = [UprevS,UprevS1,UprevS2,UprevS3];
+
+
+macro coeffmultdiff(u,v)(
+( Cd  + 1.04603* UkN  + 0.313808* UkN#1 + 0.0665688* UkN#2 ) *  Grad(u)' *  Grad(v)  +
+( Cd  + 0.313808* UkN  + 1.14017* UkN#1 + 0.443792* UkN#2 + 0.115301* UkN#3 ) *  Grad(u#1)' *  Grad(v)  +
+( Cd  + 0.0665688* UkN  + 0.443792* UkN#1 + 1.23431* UkN#2 + 0.543532* UkN#3 ) *  Grad(u#2)' *  Grad(v)  +
+( Cd  + 0.115301* UkN#1 + 0.543532* UkN#2 + 1.32846* UkN#3 ) *  Grad(u#3)' *  Grad(v)  +
+( Cd  + 0.313808* UkN  + 1.14017* UkN#1 + 0.443792* UkN#2 + 0.115301* UkN#3 ) *  Grad(u)' *  Grad(v#1)  +
+( Cd  + 1.14017* UkN  + 0.941425* UkN#1 + 1.81215* UkN#2 + 0.76867* UkN#3 ) *  Grad(u#1)' *  Grad(v#1)  +
+( Cd  + 0.443792* UkN  + 1.81215* UkN#1 + 1.56904* UkN#2 + 2.46401* UkN#3 ) *  Grad(u#2)' *  Grad(v#1)  +
+( Cd  + 0.115301* UkN  + 0.76867* UkN#1 + 2.46401* UkN#2 + 2.19666* UkN#3 ) *  Grad(u#3)' *  Grad(v#1)  +
+( Cd  + 0.0665688* UkN  + 0.443792* UkN#1 + 1.23431* UkN#2 + 0.543532* UkN#3 ) *  Grad(u)' *  Grad(v#2)  +
+( Cd  + 0.443792* UkN  + 1.81215* UkN#1 + 1.56904* UkN#2 + 2.46401* UkN#3 ) *  Grad(u#1)' *  Grad(v#2)  +
+( Cd  + 1.23431* UkN  + 1.56904* UkN#1 + 3.95715* UkN#2 + 3.07468* UkN#3 ) *  Grad(u#2)' *  Grad(v#2)  +
+( Cd  + 0.543532* UkN  + 2.46401* UkN#1 + 3.07468* UkN#2 + 6.50155* UkN#3 ) *  Grad(u#3)' *  Grad(v#2)  +
+( Cd  + 0.115301* UkN#1 + 0.543532* UkN#2 + 1.32846* UkN#3 ) *  Grad(u)' *  Grad(v#3)  +
+( Cd  + 0.115301* UkN  + 0.76867* UkN#1 + 2.46401* UkN#2 + 2.19666* UkN#3 ) *  Grad(u#1)' *  Grad(v#3)  +
+( Cd  + 0.543532* UkN  + 2.46401* UkN#1 + 3.07468* UkN#2 + 6.50155* UkN#3 ) *  Grad(u#2)' *  Grad(v#3)  +
+( Cd  + 1.32846* UkN  + 2.19666* UkN#1 + 6.50155* UkN#2 + 6.91803* UkN#3 ) *  Grad(u#3)' *  Grad(v#3)  ) //EOM
+
+
+macro coeffmultbetaE(u,v)(
+( Cd  + 1* UkAN * UkE  + 1* UkAN#1* UkE#1 + 1* UkAN#2* UkE#2 + 1* UkAN#3* UkE#3 ) *  u' *  v  +
+( Cd  + 1* UkAN#1* UkE  + 1* UkAN * UkE#1 + 1.41421* UkAN#2* UkE#1 + 1.41421* UkAN#1* UkE#2 + 1.73205* UkAN#3* UkE#2 + 1.73205* UkAN#2* UkE#3 ) *  u#1' *  v  +
+( Cd  + 1* UkAN#2* UkE  + 1.41421* UkAN#1* UkE#1 + 1.73205* UkAN#3* UkE#1 + 1* UkAN * UkE#2 + 2.82843* UkAN#2* UkE#2 + 1.73205* UkAN#1* UkE#3 + 4.24264* UkAN#3* UkE#3 ) *  u#2' *  v  +
+( Cd  + 1* UkAN#3* UkE  + 1.73205* UkAN#2* UkE#1 + 1.73205* UkAN#1* UkE#2 + 4.24264* UkAN#3* UkE#2 + 1* UkAN * UkE#3 + 4.24264* UkAN#2* UkE#3 ) *  u#3' *  v  +
+( Cd  + 1* UkAN#1* UkE  + 1* UkAN * UkE#1 + 1.41421* UkAN#2* UkE#1 + 1.41421* UkAN#1* UkE#2 + 1.73205* UkAN#3* UkE#2 + 1.73205* UkAN#2* UkE#3 ) *  u' *  v#1 +
+( Cd  + 1* UkAN * UkE  + 1.41421* UkAN#2* UkE  + 3* UkAN#1* UkE#1 + 2.44949* UkAN#3* UkE#1 + 1.41421* UkAN * UkE#2 + 5* UkAN#2* UkE#2 + 2.44949* UkAN#1* UkE#3 + 7* UkAN#3* UkE#3 ) *  u#1' *  v#1 +
+( Cd  + 1.41421* UkAN#1* UkE  + 1.73205* UkAN#3* UkE  + 1.41421* UkAN * UkE#1 + 5* UkAN#2* UkE#1 + 5* UkAN#1* UkE#2 + 9.79796* UkAN#3* UkE#2 + 1.73205* UkAN * UkE#3 + 9.79796* UkAN#2* UkE#3 ) *  u#2' *  v#1 +
+( Cd  + 1.73205* UkAN#2* UkE  + 2.44949* UkAN#1* UkE#1 + 7* UkAN#3* UkE#1 + 1.73205* UkAN * UkE#2 + 9.79796* UkAN#2* UkE#2 + 7* UkAN#1* UkE#3 + 22.0454* UkAN#3* UkE#3 ) *  u#3' *  v#1 +
+( Cd  + 1* UkAN#2* UkE  + 1.41421* UkAN#1* UkE#1 + 1.73205* UkAN#3* UkE#1 + 1* UkAN * UkE#2 + 2.82843* UkAN#2* UkE#2 + 1.73205* UkAN#1* UkE#3 + 4.24264* UkAN#3* UkE#3 ) *  u' *  v#2 +
+( Cd  + 1.41421* UkAN#1* UkE  + 1.73205* UkAN#3* UkE  + 1.41421* UkAN * UkE#1 + 5* UkAN#2* UkE#1 + 5* UkAN#1* UkE#2 + 9.79796* UkAN#3* UkE#2 + 1.73205* UkAN * UkE#3 + 9.79796* UkAN#2* UkE#3 ) *  u#1' *  v#2 +
+( Cd  + 1* UkAN * UkE  + 2.82843* UkAN#2* UkE  + 5* UkAN#1* UkE#1 + 9.79796* UkAN#3* UkE#1 + 2.82843* UkAN * UkE#2 + 15* UkAN#2* UkE#2 + 9.79796* UkAN#1* UkE#3 + 31* UkAN#3* UkE#3 ) *  u#2' *  v#2 +
+( Cd  + 1.73205* UkAN#1* UkE  + 4.24264* UkAN#3* UkE  + 1.73205* UkAN * UkE#1 + 9.79796* UkAN#2* UkE#1 + 9.79796* UkAN#1* UkE#2 + 31* UkAN#3* UkE#2 + 4.24264* UkAN * UkE#3 + 31* UkAN#2* UkE#3 ) *  u#3' *  v#2 +
+( Cd  + 1* UkAN#3* UkE  + 1.73205* UkAN#2* UkE#1 + 1.73205* UkAN#1* UkE#2 + 4.24264* UkAN#3* UkE#2 + 1* UkAN * UkE#3 + 4.24264* UkAN#2* UkE#3 ) *  u' *  v#3 +
+( Cd  + 1.73205* UkAN#2* UkE  + 2.44949* UkAN#1* UkE#1 + 7* UkAN#3* UkE#1 + 1.73205* UkAN * UkE#2 + 9.79796* UkAN#2* UkE#2 + 7* UkAN#1* UkE#3 + 22.0454* UkAN#3* UkE#3 ) *  u#1' *  v#3 +
+( Cd  + 1.73205* UkAN#1* UkE  + 4.24264* UkAN#3* UkE  + 1.73205* UkAN * UkE#1 + 9.79796* UkAN#2* UkE#1 + 9.79796* UkAN#1* UkE#2 + 31* UkAN#3* UkE#2 + 4.24264* UkAN * UkE#3 + 31* UkAN#2* UkE#3 ) *  u#2' *  v#3 +
+( Cd  + 1* UkAN * UkE  + 4.24264* UkAN#2* UkE  + 7* UkAN#1* UkE#1 + 22.0454* UkAN#3* UkE#1 + 4.24264* UkAN * UkE#2 + 31* UkAN#2* UkE#2 + 22.0454* UkAN#1* UkE#3 + 93* UkAN#3* UkE#3 ) *  u#3' *  v#3 ) //EOM
+
+
+macro coeffmultbetaI(u,v)(
+( Cd  + 1* UkAN * UkI  + 1* UkAN#1* UkI#1 + 1* UkAN#2* UkI#2 + 1* UkAN#3* UkI#3 ) *  u' *  v  +
+( Cd  + 1* UkAN#1* UkI  + 1* UkAN * UkI#1 + 1.41421* UkAN#2* UkI#1 + 1.41421* UkAN#1* UkI#2 + 1.73205* UkAN#3* UkI#2 + 1.73205* UkAN#2* UkI#3 ) *  u#1' *  v  +
+( Cd  + 1* UkAN#2* UkI  + 1.41421* UkAN#1* UkI#1 + 1.73205* UkAN#3* UkI#1 + 1* UkAN * UkI#2 + 2.82843* UkAN#2* UkI#2 + 1.73205* UkAN#1* UkI#3 + 4.24264* UkAN#3* UkI#3 ) *  u#2' *  v  +
+( Cd  + 1* UkAN#3* UkI  + 1.73205* UkAN#2* UkI#1 + 1.73205* UkAN#1* UkI#2 + 4.24264* UkAN#3* UkI#2 + 1* UkAN * UkI#3 + 4.24264* UkAN#2* UkI#3 ) *  u#3' *  v  +
+( Cd  + 1* UkAN#1* UkI  + 1* UkAN * UkI#1 + 1.41421* UkAN#2* UkI#1 + 1.41421* UkAN#1* UkI#2 + 1.73205* UkAN#3* UkI#2 + 1.73205* UkAN#2* UkI#3 ) *  u' *  v#1 +
+( Cd  + 1* UkAN * UkI  + 1.41421* UkAN#2* UkI  + 3* UkAN#1* UkI#1 + 2.44949* UkAN#3* UkI#1 + 1.41421* UkAN * UkI#2 + 5* UkAN#2* UkI#2 + 2.44949* UkAN#1* UkI#3 + 7* UkAN#3* UkI#3 ) *  u#1' *  v#1 +
+( Cd  + 1.41421* UkAN#1* UkI  + 1.73205* UkAN#3* UkI  + 1.41421* UkAN * UkI#1 + 5* UkAN#2* UkI#1 + 5* UkAN#1* UkI#2 + 9.79796* UkAN#3* UkI#2 + 1.73205* UkAN * UkI#3 + 9.79796* UkAN#2* UkI#3 ) *  u#2' *  v#1 +
+( Cd  + 1.73205* UkAN#2* UkI  + 2.44949* UkAN#1* UkI#1 + 7* UkAN#3* UkI#1 + 1.73205* UkAN * UkI#2 + 9.79796* UkAN#2* UkI#2 + 7* UkAN#1* UkI#3 + 22.0454* UkAN#3* UkI#3 ) *  u#3' *  v#1 +
+( Cd  + 1* UkAN#2* UkI  + 1.41421* UkAN#1* UkI#1 + 1.73205* UkAN#3* UkI#1 + 1* UkAN * UkI#2 + 2.82843* UkAN#2* UkI#2 + 1.73205* UkAN#1* UkI#3 + 4.24264* UkAN#3* UkI#3 ) *  u' *  v#2 +
+( Cd  + 1.41421* UkAN#1* UkI  + 1.73205* UkAN#3* UkI  + 1.41421* UkAN * UkI#1 + 5* UkAN#2* UkI#1 + 5* UkAN#1* UkI#2 + 9.79796* UkAN#3* UkI#2 + 1.73205* UkAN * UkI#3 + 9.79796* UkAN#2* UkI#3 ) *  u#1' *  v#2 +
+( Cd  + 1* UkAN * UkI  + 2.82843* UkAN#2* UkI  + 5* UkAN#1* UkI#1 + 9.79796* UkAN#3* UkI#1 + 2.82843* UkAN * UkI#2 + 15* UkAN#2* UkI#2 + 9.79796* UkAN#1* UkI#3 + 31* UkAN#3* UkI#3 ) *  u#2' *  v#2 +
+( Cd  + 1.73205* UkAN#1* UkI  + 4.24264* UkAN#3* UkI  + 1.73205* UkAN * UkI#1 + 9.79796* UkAN#2* UkI#1 + 9.79796* UkAN#1* UkI#2 + 31* UkAN#3* UkI#2 + 4.24264* UkAN * UkI#3 + 31* UkAN#2* UkI#3 ) *  u#3' *  v#2 +
+( Cd  + 1* UkAN#3* UkI  + 1.73205* UkAN#2* UkI#1 + 1.73205* UkAN#1* UkI#2 + 4.24264* UkAN#3* UkI#2 + 1* UkAN * UkI#3 + 4.24264* UkAN#2* UkI#3 ) *  u' *  v#3 +
+( Cd  + 1.73205* UkAN#2* UkI  + 2.44949* UkAN#1* UkI#1 + 7* UkAN#3* UkI#1 + 1.73205* UkAN * UkI#2 + 9.79796* UkAN#2* UkI#2 + 7* UkAN#1* UkI#3 + 22.0454* UkAN#3* UkI#3 ) *  u#1' *  v#3 +
+( Cd  + 1.73205* UkAN#1* UkI  + 4.24264* UkAN#3* UkI  + 1.73205* UkAN * UkI#1 + 9.79796* UkAN#2* UkI#1 + 9.79796* UkAN#1* UkI#2 + 31* UkAN#3* UkI#2 + 4.24264* UkAN * UkI#3 + 31* UkAN#2* UkI#3 ) *  u#2' *  v#3 +
+( Cd  + 1* UkAN * UkI  + 4.24264* UkAN#2* UkI  + 7* UkAN#1* UkI#1 + 22.0454* UkAN#3* UkI#1 + 4.24264* UkAN * UkI#2 + 31* UkAN#2* UkI#2 + 22.0454* UkAN#1* UkI#3 + 93* UkAN#3* UkI#3 ) *  u#3' *  v#3 ) //EOM

@@ -1,0 +1,45 @@
+
+
+ord = 3, RV =1
+
+
+macro coeffmultdiff(u,v)(
+( Cd(0,0)   +  Td(0,0,0)* Uprev +  Td(1,0,0)* Uprev#1 +  Td(2,0,0)* Uprev#2 ) *  Grad(u)' *  Grad(v)  +
+( Cd(1,0)   +  Td(0,1,0)* Uprev +  Td(1,1,0)* Uprev#1 +  Td(2,1,0)* Uprev#2 +  Td(3,1,0)* Uprev#3 ) *  Grad(u#1)' *  Grad(v)  +
+( Cd(2,0)   +  Td(0,2,0)* Uprev +  Td(1,2,0)* Uprev#1 +  Td(2,2,0)* Uprev#2 +  Td(3,2,0)* Uprev#3 ) *  Grad(u#2)' *  Grad(v)  +
+( Cd(3,0)   +  Td(1,3,0)* Uprev#1 +  Td(2,3,0)* Uprev#2 +  Td(3,3,0)* Uprev#3 ) *  Grad(u#3)' *  Grad(v)  +
+( Cd(0,1)   +  Td(0,0,1)* Uprev +  Td(1,0,1)* Uprev#1 +  Td(2,0,1)* Uprev#2 +  Td(3,0,1)* Uprev#3 ) *  Grad(u)' *  Grad(v#1)  +
+( Cd(1,1)   +  Td(0,1,1)* Uprev +  Td(1,1,1)* Uprev#1 +  Td(2,1,1)* Uprev#2 +  Td(3,1,1)* Uprev#3 ) *  Grad(u#1)' *  Grad(v#1)  +
+( Cd(2,1)   +  Td(0,2,1)* Uprev +  Td(1,2,1)* Uprev#1 +  Td(2,2,1)* Uprev#2 +  Td(3,2,1)* Uprev#3 ) *  Grad(u#2)' *  Grad(v#1)  +
+( Cd(3,1)   +  Td(0,3,1)* Uprev +  Td(1,3,1)* Uprev#1 +  Td(2,3,1)* Uprev#2 +  Td(3,3,1)* Uprev#3 ) *  Grad(u#3)' *  Grad(v#1)  +
+( Cd(0,2)   +  Td(0,0,2)* Uprev +  Td(1,0,2)* Uprev#1 +  Td(2,0,2)* Uprev#2 +  Td(3,0,2)* Uprev#3 ) *  Grad(u)' *  Grad(v#2)  +
+( Cd(1,2)   +  Td(0,1,2)* Uprev +  Td(1,1,2)* Uprev#1 +  Td(2,1,2)* Uprev#2 +  Td(3,1,2)* Uprev#3 ) *  Grad(u#1)' *  Grad(v#2)  +
+( Cd(2,2)   +  Td(0,2,2)* Uprev +  Td(1,2,2)* Uprev#1 +  Td(2,2,2)* Uprev#2 +  Td(3,2,2)* Uprev#3 ) *  Grad(u#2)' *  Grad(v#2)  +
+( Cd(3,2)   +  Td(0,3,2)* Uprev +  Td(1,3,2)* Uprev#1 +  Td(2,3,2)* Uprev#2 +  Td(3,3,2)* Uprev#3 ) *  Grad(u#3)' *  Grad(v#2)  +
+( Cd(0,3)   +  Td(1,0,3)* Uprev#1 +  Td(2,0,3)* Uprev#2 +  Td(3,0,3)* Uprev#3 ) *  Grad(u)' *  Grad(v#3)  +
+( Cd(1,3)   +  Td(0,1,3)* Uprev +  Td(1,1,3)* Uprev#1 +  Td(2,1,3)* Uprev#2 +  Td(3,1,3)* Uprev#3 ) *  Grad(u#1)' *  Grad(v#3)  +
+( Cd(2,3)   +  Td(0,2,3)* Uprev +  Td(1,2,3)* Uprev#1 +  Td(2,2,3)* Uprev#2 +  Td(3,2,3)* Uprev#3 ) *  Grad(u#2)' *  Grad(v#3)  +
+( Cd(3,3)   +  Td(0,3,3)* Uprev +  Td(1,3,3)* Uprev#1 +  Td(2,3,3)* Uprev#2 +  Td(3,3,3)* Uprev#3 ) *  Grad(u#3)' *  Grad(v#3)  ) //EOM
+
+
+
+
+
+
+macro coeffmultbetaE(u,v)(
+( Cd  +  Tijkl(1,1,1,1)* UkAN* UkE +  Tijkl(2,2,1,1)* UkAN#1* UkE#1 +  Tijkl(3,3,1,1)* UkAN#2* UkE#2 +  Tijkl(4,4,1,1)* UkAN#3* UkE#3 ) *  Grad(u)' *  Grad(v)  +
+( Cd  +  Tijkl(2,1,2,1)* UkAN#1* UkE +  Tijkl(1,2,2,1)* UkAN* UkE#1 +  Tijkl(3,2,2,1)* UkAN#2* UkE#1 +  Tijkl(2,3,2,1)* UkAN#1* UkE#2 +  Tijkl(4,3,2,1)* UkAN#3* UkE#2 +  Tijkl(3,4,2,1)* UkAN#2* UkE#3 ) *  Grad(u#1)' *  Grad(v)  +
+( Cd  +  Tijkl(3,1,3,1)* UkAN#2* UkE +  Tijkl(2,2,3,1)* UkAN#1* UkE#1 +  Tijkl(4,2,3,1)* UkAN#3* UkE#1 +  Tijkl(1,3,3,1)* UkAN* UkE#2 +  Tijkl(3,3,3,1)* UkAN#2* UkE#2 +  Tijkl(2,4,3,1)* UkAN#1* UkE#3 +  Tijkl(4,4,3,1)* UkAN#3* UkE#3 ) *  Grad(u#2)' *  Grad(v)  +
+( Cd  +  Tijkl(4,1,4,1)* UkAN#3* UkE +  Tijkl(3,2,4,1)* UkAN#2* UkE#1 +  Tijkl(2,3,4,1)* UkAN#1* UkE#2 +  Tijkl(4,3,4,1)* UkAN#3* UkE#2 +  Tijkl(1,4,4,1)* UkAN* UkE#3 +  Tijkl(3,4,4,1)* UkAN#2* UkE#3 ) *  Grad(u#3)' *  Grad(v)  +
+( Cd  +  Tijkl(2,1,1,2)* UkAN#1* UkE +  Tijkl(1,2,1,2)* UkAN* UkE#1 +  Tijkl(3,2,1,2)* UkAN#2* UkE#1 +  Tijkl(2,3,1,2)* UkAN#1* UkE#2 +  Tijkl(4,3,1,2)* UkAN#3* UkE#2 +  Tijkl(3,4,1,2)* UkAN#2* UkE#3 ) *  Grad(u)' *  Grad(v#1)  +
+( Cd  +  Tijkl(1,1,2,2)* UkAN* UkE +  Tijkl(3,1,2,2)* UkAN#2* UkE +  Tijkl(2,2,2,2)* UkAN#1* UkE#1 +  Tijkl(4,2,2,2)* UkAN#3* UkE#1 +  Tijkl(1,3,2,2)* UkAN* UkE#2 +  Tijkl(3,3,2,2)* UkAN#2* UkE#2 +  Tijkl(2,4,2,2)* UkAN#1* UkE#3 +  Tijkl(4,4,2,2)* UkAN#3* UkE#3 ) *  Grad(u#1)' *  Grad(v#1)  +
+( Cd  +  Tijkl(2,1,3,2)* UkAN#1* UkE +  Tijkl(4,1,3,2)* UkAN#3* UkE +  Tijkl(1,2,3,2)* UkAN* UkE#1 +  Tijkl(3,2,3,2)* UkAN#2* UkE#1 +  Tijkl(2,3,3,2)* UkAN#1* UkE#2 +  Tijkl(4,3,3,2)* UkAN#3* UkE#2 +  Tijkl(1,4,3,2)* UkAN* UkE#3 +  Tijkl(3,4,3,2)* UkAN#2* UkE#3 ) *  Grad(u#2)' *  Grad(v#1)  +
+( Cd  +  Tijkl(3,1,4,2)* UkAN#2* UkE +  Tijkl(2,2,4,2)* UkAN#1* UkE#1 +  Tijkl(4,2,4,2)* UkAN#3* UkE#1 +  Tijkl(1,3,4,2)* UkAN* UkE#2 +  Tijkl(3,3,4,2)* UkAN#2* UkE#2 +  Tijkl(2,4,4,2)* UkAN#1* UkE#3 +  Tijkl(4,4,4,2)* UkAN#3* UkE#3 ) *  Grad(u#3)' *  Grad(v#1)  +
+( Cd  +  Tijkl(3,1,1,3)* UkAN#2* UkE +  Tijkl(2,2,1,3)* UkAN#1* UkE#1 +  Tijkl(4,2,1,3)* UkAN#3* UkE#1 +  Tijkl(1,3,1,3)* UkAN* UkE#2 +  Tijkl(3,3,1,3)* UkAN#2* UkE#2 +  Tijkl(2,4,1,3)* UkAN#1* UkE#3 +  Tijkl(4,4,1,3)* UkAN#3* UkE#3 ) *  Grad(u)' *  Grad(v#2)  +
+( Cd  +  Tijkl(2,1,2,3)* UkAN#1* UkE +  Tijkl(4,1,2,3)* UkAN#3* UkE +  Tijkl(1,2,2,3)* UkAN* UkE#1 +  Tijkl(3,2,2,3)* UkAN#2* UkE#1 +  Tijkl(2,3,2,3)* UkAN#1* UkE#2 +  Tijkl(4,3,2,3)* UkAN#3* UkE#2 +  Tijkl(1,4,2,3)* UkAN* UkE#3 +  Tijkl(3,4,2,3)* UkAN#2* UkE#3 ) *  Grad(u#1)' *  Grad(v#2)  +
+( Cd  +  Tijkl(1,1,3,3)* UkAN* UkE +  Tijkl(3,1,3,3)* UkAN#2* UkE +  Tijkl(2,2,3,3)* UkAN#1* UkE#1 +  Tijkl(4,2,3,3)* UkAN#3* UkE#1 +  Tijkl(1,3,3,3)* UkAN* UkE#2 +  Tijkl(3,3,3,3)* UkAN#2* UkE#2 +  Tijkl(2,4,3,3)* UkAN#1* UkE#3 +  Tijkl(4,4,3,3)* UkAN#3* UkE#3 ) *  Grad(u#2)' *  Grad(v#2)  +
+( Cd  +  Tijkl(2,1,4,3)* UkAN#1* UkE +  Tijkl(4,1,4,3)* UkAN#3* UkE +  Tijkl(1,2,4,3)* UkAN* UkE#1 +  Tijkl(3,2,4,3)* UkAN#2* UkE#1 +  Tijkl(2,3,4,3)* UkAN#1* UkE#2 +  Tijkl(4,3,4,3)* UkAN#3* UkE#2 +  Tijkl(1,4,4,3)* UkAN* UkE#3 +  Tijkl(3,4,4,3)* UkAN#2* UkE#3 ) *  Grad(u#3)' *  Grad(v#2)  +
+( Cd  +  Tijkl(4,1,1,4)* UkAN#3* UkE +  Tijkl(3,2,1,4)* UkAN#2* UkE#1 +  Tijkl(2,3,1,4)* UkAN#1* UkE#2 +  Tijkl(4,3,1,4)* UkAN#3* UkE#2 +  Tijkl(1,4,1,4)* UkAN* UkE#3 +  Tijkl(3,4,1,4)* UkAN#2* UkE#3 ) *  Grad(u)' *  Grad(v#3)  +
+( Cd  +  Tijkl(3,1,2,4)* UkAN#2* UkE +  Tijkl(2,2,2,4)* UkAN#1* UkE#1 +  Tijkl(4,2,2,4)* UkAN#3* UkE#1 +  Tijkl(1,3,2,4)* UkAN* UkE#2 +  Tijkl(3,3,2,4)* UkAN#2* UkE#2 +  Tijkl(2,4,2,4)* UkAN#1* UkE#3 +  Tijkl(4,4,2,4)* UkAN#3* UkE#3 ) *  Grad(u#1)' *  Grad(v#3)  +
+( Cd  +  Tijkl(2,1,3,4)* UkAN#1* UkE +  Tijkl(4,1,3,4)* UkAN#3* UkE +  Tijkl(1,2,3,4)* UkAN* UkE#1 +  Tijkl(3,2,3,4)* UkAN#2* UkE#1 +  Tijkl(2,3,3,4)* UkAN#1* UkE#2 +  Tijkl(4,3,3,4)* UkAN#3* UkE#2 +  Tijkl(1,4,3,4)* UkAN* UkE#3 +  Tijkl(3,4,3,4)* UkAN#2* UkE#3 ) *  Grad(u#2)' *  Grad(v#3)  +
+( Cd  +  Tijkl(1,1,4,4)* UkAN* UkE +  Tijkl(3,1,4,4)* UkAN#2* UkE +  Tijkl(2,2,4,4)* UkAN#1* UkE#1 +  Tijkl(4,2,4,4)* UkAN#3* UkE#1 +  Tijkl(1,3,4,4)* UkAN* UkE#2 +  Tijkl(3,3,4,4)* UkAN#2* UkE#2 +  Tijkl(2,4,4,4)* UkAN#1* UkE#3 +  Tijkl(4,4,4,4)* UkAN#3* UkE#3 ) *  Grad(u#3)' *  Grad(v#3)  ) //EOM

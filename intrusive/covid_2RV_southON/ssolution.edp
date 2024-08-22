@@ -1,0 +1,55 @@
+solS[0] = US;
+solS[1] = US1;
+solS[2] = US2;
+solS[3] = US3;
+solS[4] = US4;
+solS[5] = US5;
+solS[6] = US6;
+solS[7] = US7;
+solS[8] = US8;
+solS[9] = US9;
+
+solE[0] = UE;
+solE[1] = UE1;
+solE[2] = UE2;
+solE[3] = UE3;
+solE[4] = UE4;
+solE[5] = UE5;
+solE[6] = UE6;
+solE[7] = UE7;
+solE[8] = UE8;
+solE[9] = UE9;
+
+solI[0] = UI;
+solI[1] = UI1;
+solI[2] = UI2;
+solI[3] = UI3;
+solI[4] = UI4;
+solI[5] = UI5;
+solI[6] = UI6;
+solI[7] = UI7;
+solI[8] = UI8;
+solI[9] = UI9;
+
+solR[0] = UR;
+solR[1] = UR1;
+solR[2] = UR2;
+solR[3] = UR3;
+solR[4] = UR4;
+solR[5] = UR5;
+solR[6] = UR6;
+solR[7] = UR7;
+solR[8] = UR8;
+solR[9] = UR9;
+
+solD[0] = UD;
+solD[1] = UD1;
+solD[2] = UD2;
+solD[3] = UD3;
+solD[4] = UD4;
+solD[5] = UD5;
+solD[6] = UD6;
+solD[7] = UD7;
+solD[8] = UD8;
+solD[9] = UD9;
+

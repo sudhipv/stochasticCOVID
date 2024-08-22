@@ -1,0 +1,11 @@
+real mug1 = -14.614;
+real sigmag1 = 0.3;
+real mug2 = -20.72;
+real sigmag2 = 0.3;
+real ordo = 3;
+real ordi = 2;
+real outPC = 10;
+real inPC = 6;
+func Pk = [ P1, P1, P1, P1, P1, P1, P1, P1, P1, P1];
+macro def(i)[i, i#1, i#2, i#3, i#4, i#5, i#6, i#7, i#8, i#9] //EOM
+macro init(i)[i, i, i, i, i, i, i, i, i, i]//EOM

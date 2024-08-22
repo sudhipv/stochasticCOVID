@@ -1,0 +1,64 @@
+// NL Poisson problem - FOR plotting solution from MCS
+
+load "PETSc"
+include "macro_ddm.idp"       // additional DDM functions
+include "getARGV.idp"
+
+load "iovtk"
+int[int] Order = [1]; // 1 - P1 lagrange elements 0 - P0
+
+mesh Th = square(50,50);
+//savevtk("Th.vtu",Th);
+
+func Pk = P1;
+
+fespace Vh(Th, Pk);
+
+
+
+ifstream file1("./results/processed/mean_nodespaceS.dat");
+ifstream file2("./results/processed/sd_nodespaceS.dat");
+
+int ns1,ns2;
+real f2,f3,f4,f5;
+
+
+file1 >> ns1;
+file2 >> ns2;
+
+cout << ns1 << endl;
+cout << ns2 << endl;
+
+
+real [int,int] meanmcs(ns1,1);
+real [int,int] sdmcs(ns1,1);
+
+for (int i = 0; i < ns1 ; i++)
+{
+
+file1 >> meanmcs(i,0);
+
+file2 >> sdmcs(i,0);
+
+
+}
+
+
+//cout << "umcs is "  << meanmcs <<  endl;
+
+//cout << "usd is "  << sdmcs << endl;
+
+
+
+Vh umean = meanmcs;
+
+Vh usd = sdmcs;
+
+savevtk("./results/processed/mean_nodespaceS.vtu", Th, umean,bin = 1, order = Order);
+
+
+savevtk("./results/processed/sd_nodespaceS.vtu", Th, usd,bin = 1, order = Order);
+
+
+
+

@@ -1,0 +1,924 @@
+include "getARGV.idp"
+
+int ordi = getARGV("-ordi", 2);
+int ordo = getARGV("-ordo", 3);
+real mug = getARGV("-muG", 0.0);
+real sigmag = getARGV("-sigmaG",0.3);
+real alpha = getARGV("-alpha",1.0);  // In order to test Nl to Linear transformation, put alpha = 0.0
+// and manually remove all the Uprev terms in the weakform file ssweakform.edp
+
+
+real outPC = ordo + 1;
+real inPC = ordi + 1 ;
+
+int N = ordo + 1;
+assert(N > 0);
+
+
+ofstream ff("ssinit.edp");
+
+ff << "real mug = " << mug << ";" << endl;
+ff << "real sigmag = " << sigmag << ";" << endl;
+ff << "real ordo = "<< ordo <<";" << endl;
+ff << "real ordi = " << ordi << ";" << endl;
+
+
+// Generating fespace
+//fespace Vh(Th, P1, P1, P1, P1);
+
+ff<< "func Pk = [";
+for(int i = 0; i < N; ++i) {
+    ff << " P1";
+    if(i != N-1)
+        ff << ",";
+    else
+        ff << "];";
+}
+ff << endl;
+
+
+//Generating macro
+//macro def(i)[i, i#1]// EOM          // vector field definition
+
+ff<< "macro def(i)[i,";
+for(int i = 0; i < N-1; ++i) {
+    ff << " i#"<<i+1;
+    if(i != N-2)
+        ff << ",";
+    else
+        ff << "] //EOM";
+}
+ff << endl;
+
+
+//macro init(i)[i, i]// EOM           // vector field initialization
+
+ff<< "macro init(i)[";
+for(int i = 0; i < N; ++i) {
+    ff << "i";
+    if(i != N-1)
+        ff << ", ";
+    else
+        ff << "]//EOM";
+}
+ff << endl;
+
+
+ofstream fg("ssweakcomp.edp");
+
+
+// macro UtransV2(u,v)(u*v + u#1 * v#1 + u#2 * v#2) //EOM
+
+fg<< "macro UtransV(u,v)(u*v + ";
+for(int i = 0; i < N-1; ++i) {
+    fg << "u#" << i+1 << "*" << "v#"<< i+1;
+    if(i != N-2)
+        fg << " + ";
+    else
+        fg << ")//EOM";
+}
+fg << endl;
+
+
+
+
+
+
+
+// ####################################################################################
+// ####################################################################################
+// ####################################################################################
+
+
+real [int] Li(6);
+
+func real[int] diffLognormal(real ordIN, real muG, real sigmaG)
+{
+
+    // Log normal random variable expansion
+
+    real muL =  exp(muG + 0.5 * sigmaG^2);
+
+    Li (0) = muL * (1);
+    Li (1) = muL * (sigmaG);
+    Li (2) = muL * (sigmaG^2)/sqrt(2);
+    Li (3) = muL * (sigmaG^3)/sqrt(6);
+    Li (4) = muL * (sigmaG^4)/sqrt(24);
+    Li (5) = muL * (sigmaG^5)/sqrt(120);
+
+
+
+    //real Li = muL * sigmaG ^ i /
+
+    return Li;
+
+}
+
+// #############################################################################
+// #############################################################################
+
+
+
+Li = diffLognormal(ordi, mug, sigmag);
+
+cout << Li << endl;
+
+
+// ####################################################################################
+// ####################################################################################
+// ####################################################################################
+
+
+// ####################################################################################
+// ####################################################################################
+// ####################################################################################
+
+
+// Load Cijk - Multiplication Tensor
+
+
+ifstream file10("./cijk_O10_D1");
+
+int nCijk;
+real f2,f3,f4,f5;
+
+
+file10 >> nCijk;
+
+//cout << k1 << endl;
+
+real [int,int] Cijk(nCijk,4);
+
+for (int i = 0; i < nCijk ; i++)
+{
+
+file10 >> f2 >> f3 >> f4 >> f5;
+
+//cout << k2 << k3 << k4 << k5 << endl;
+
+Cijk(i,0) = f2;
+Cijk(i,1) = f3;
+Cijk(i,2) = f4;
+Cijk(i,3) = f5;
+
+
+}
+
+//cout << "Cijk is " << Cijk << endl;
+
+
+real [int,int] Cd(outPC,outPC);
+
+Cd = 0;
+
+for(int k =0; k< outPC ; k++)
+{
+    for(int j =0; j< outPC ; j++)
+    {
+        for(int i =0; i< inPC ; i++)
+        {
+            for(int id = 0; id <nCijk ; id ++ )
+            {
+
+                if(Cijk(id,0) == i+1 && Cijk(id,1) == j+1 && Cijk(id,2) == k+1)
+                {
+
+                    Cd(j,k) += Li(i) * Cijk(id,3);
+                    break;
+
+                }
+
+            }
+        }
+
+    }
+}
+
+
+ofstream file20("Cd.dat");
+
+file20 << Cd;
+
+// ####################################################################################
+// ####################################################################################
+// ####################################################################################
+
+
+// Load Tijkl - Multiplication Tensor
+
+string loc = "./Tijkl/Tijkl_O"+ordo+"_D1";
+
+//string loc = "./Tijkl/Tijkl_O10_D1";
+
+ifstream file1(loc);
+
+int nTijkl;
+real k2,k3,k4,k5,k6;
+
+
+file1 >> nTijkl;
+
+//cout << k1 << endl;
+
+real [int,int] Tijkl(nTijkl,5);
+
+for (int i = 0; i < nTijkl ; i++)
+{
+
+file1 >> k2 >> k3 >> k4 >> k5 >> k6;
+
+//cout << k2 << k3 << k4 << k5 << endl;
+
+Tijkl(i,0) = k2;
+Tijkl(i,1) = k3;
+Tijkl(i,2) = k4;
+Tijkl(i,3) = k5;
+Tijkl(i,4) = k6;
+
+
+}
+
+//cout << " initial " << Tijkl << endl;
+
+
+
+real [int,int] Td(nTijkl,4);
+Td = 0.0;
+
+real jd = 0.0;
+int num = 0;
+
+//Td(num,0) = 1;
+
+//cout<< Td<< endl;
+int flag = 0;
+
+for(int l =0; l< outPC ; l++)
+{
+    for(int k =0; k< outPC ; k++)
+    {
+        for(int j =0; j< outPC ; j++)
+        {
+            for(int i =0; i< inPC ; i++)
+            {
+                for(int id = 0; id <nTijkl ; id ++ )
+                {
+
+                    if(Tijkl(id,0) == i+1 && Tijkl(id,1) == j+1 && Tijkl(id,2) == k+1 && Tijkl(id,3) == l+1)
+                    {
+
+                        flag = 1;
+                        jd += Li(i) * alpha *  Tijkl(id,4);
+                        //cout << "li is" << Li(i) << "   " << i+1 << "   " << j+1 << "   "<< k+1<< "   " << l+1 << "   " << "tijkl is " << Tijkl(id,4) << "  " << "product is"
+                        //<< Cd << endl;
+                        Td(num,0) = j;
+                        Td(num,1) = k;
+                        Td(num,2) = l;
+                        Td(num,3) = jd;
+                        //ff << j+1 <<" "<< k+1 <<" "<< l+1 <<"     "<< Cd << endl;
+                        break;
+
+                    }
+
+                }
+            }
+
+            if(flag ==1) num = num+1;
+            flag = 0;
+            //cout << "Finished for 1 i" << endl ;
+            jd = 0.0;
+
+        }
+    }
+}
+
+//cout<< num << endl;
+
+//cout<< Td << endl;
+
+ofstream file2("Td.dat");
+
+file2 << Td;
+
+
+// ####################################################################################
+// ####################################################################################
+// ####################################################################################
+
+
+
+// ####################################################################################
+// ####################################################################################
+// ####################################################################################
+
+
+
+// [Uprev,Uprev1,Uprev2,Uprev3] = [0,0,0,0];
+
+fg<< "[UprevS,";
+for(int i = 0; i < N-1; ++i) {
+    fg << "UprevS" << i+1;
+    if(i != N-2)
+        fg << ",";
+    else
+        fg << "] ";
+}
+
+
+fg<< "=[Uini[0],";
+for(int i = 0; i < N-1; ++i) {
+    fg << "0";
+    if(i != N-2)
+        fg << ",";
+    else
+        fg << "];";
+}
+
+fg << endl;
+
+
+fg<< "[UprevE,";
+for(int i = 0; i < N-1; ++i) {
+    fg << "UprevE" << i+1;
+    if(i != N-2)
+        fg << ",";
+    else
+        fg << "] ";
+}
+
+
+fg<< "=[Uini[1],";
+for(int i = 0; i < N-1; ++i) {
+    fg << "0";
+    if(i != N-2)
+        fg << ",";
+    else
+        fg << "];";
+}
+
+fg << endl;
+
+
+fg<< "[UprevI,";
+for(int i = 0; i < N-1; ++i) {
+    fg << "UprevI" << i+1;
+    if(i != N-2)
+        fg << ",";
+    else
+        fg << "] ";
+}
+
+
+fg<< "=[Uini[2],";
+for(int i = 0; i < N-1; ++i) {
+    fg << "0";
+    if(i != N-2)
+        fg << ",";
+    else
+        fg << "];";
+}
+
+fg << endl;
+
+fg<< "[UprevR,";
+for(int i = 0; i < N-1; ++i) {
+    fg << "UprevR" << i+1;
+    if(i != N-2)
+        fg << ",";
+    else
+        fg << "] ";
+}
+
+
+fg<< "=[Uini[3],";
+for(int i = 0; i < N-1; ++i) {
+    fg << "0";
+    if(i != N-2)
+        fg << ",";
+    else
+        fg << "];";
+}
+
+
+fg << endl;
+
+fg<< "[UprevD,";
+for(int i = 0; i < N-1; ++i) {
+    fg << "UprevD" << i+1;
+    if(i != N-2)
+        fg << ",";
+    else
+        fg << "] ";
+}
+
+
+fg<< "=[Uini[4],";
+for(int i = 0; i < N-1; ++i) {
+    fg << "0";
+    if(i != N-2)
+        fg << ",";
+    else
+        fg << "];";
+}
+
+
+
+fg << endl;
+fg << endl;
+fg << endl;
+
+
+
+
+// ####################################################################################
+// ####################################################################################
+// ####################################################################################
+
+
+
+fg << "macro coeffmultdiff(u,v)(";
+
+int checknum = 0;
+
+for(int l =0; l< outPC ; l++)
+{
+    for(int k =0; k< outPC ; k++)
+    {
+
+
+        fg << endl;
+
+        // Exact values
+        fg << "( Cd " ;
+
+        ///For checking the expression
+        //fg << "( Cd(" << k << "," << l << ")  ";
+
+
+        checknum = 0;
+        for(int j =0; j< outPC ; j++)
+        {
+            for(int id = 0; id <num ; id ++ )
+            {
+
+                if(Td(id,0) == j && Td(id,1) == k && Td(id,2) == l )
+                {
+
+                    fg << " + " ;
+                    //cout << Td(id,3) << " "<< j << " "<< k << " " << l  << endl;
+                    if(j != 0)
+                    {
+
+                        // Exact values
+                        fg << Td(id,3) << "* UkN#"<<j;
+
+                        // For checking the expression
+                        //fg << " Td("<< j <<","<< k <<","<< l << ")" << "* Uprev#"<<j;
+                    }
+                    else
+                    {
+                        // Exact values
+                        fg << Td(id,3) << "* UkN ";
+
+                        // For checking the expression
+                        //fg << " Td("<< j <<","<< k <<","<< l << ")" << "* Uprev";
+                    }
+
+                    checknum = checknum + 1;
+
+                }
+
+            }
+
+
+        }
+
+
+        fg << " ) * " ;
+        if(k == 0 )
+        {
+            fg << " Grad(u)' * ";
+        }
+        else
+        {
+           fg << " Grad(u#" << k << ")' * ";
+        }
+
+        if(l == 0 )
+        {
+            fg << " Grad(v) ";
+        }
+        else
+        {
+           fg << " Grad(v#" << l << ") ";
+        }
+
+        if(l == N-1 && k== N-1)
+            fg << " ) //EOM";
+        else
+            fg << " + ";
+
+
+
+
+
+    }
+}
+
+
+fg << endl;
+fg << endl;
+fg << endl;
+
+// ####################################################################################
+// ####################################################################################
+// ####################################################################################
+
+// i - UkAN and j- UkE
+// k - u and l - v
+
+cout  << Tijkl << endl;
+
+fg << "macro coeffmultbetaE(u,v)(";
+
+int checknumbE = 0;
+
+for(int l =0; l< outPC ; l++)
+{
+    for(int k =0; k< outPC ; k++)
+    {
+
+
+        fg << endl;
+
+        // Exact values
+        fg << "( Cd " ;
+
+        // For checking the expression
+        //fg << "( Cd(" << k << "," << l << ") + ";
+
+
+        checknumbE = 0;
+
+        for(int j =0; j< outPC ; j++)
+        {
+
+
+            for (int i =0; i< outPC ; i++)
+
+            {
+                    for(int id = 0; id < nTijkl ; id ++ )
+                    {
+
+                        if(Tijkl(id,0) == i+1 && Tijkl(id,1) == j+1 && Tijkl(id,2) == k+1 && Tijkl(id,3) == l+1 )
+                        {
+
+                            fg << " + " ;
+                            //cout << Td(id,3) << " "<< j << " "<< k << " " << l  << endl;
+
+                            if(i != 0)
+                            {
+
+                                // Exact values
+                                fg << Tijkl(id,4) << "* UkAN#"<<i;
+
+                                //cout << i+1 <<","<< j+1 <<","<< k+1 <<","<< l+1 << "        " << Tijkl(id,4) << endl;
+
+                                // For checking the expression
+                                //fg << " Tijkl("<< i+1 <<","<< j+1 <<","<< k+1 <<","<< l+1 << ")" << "* UkAN#"<<i;
+                            }
+                            else
+                            {
+                                // Exact values
+                                fg << Tijkl(id,4) << "* UkAN ";
+
+                                //cout << i+1 <<","<< j+1 <<","<< k+1 <<","<< l+1 << "        " << Tijkl(id,4) << endl;
+                                // For checking the expression
+                                //fg << " Tijkl("<< i+1 <<","<< j+1 <<","<< k+1 <<","<< l+1 << ")" << "* UkAN";
+                            }
+
+
+                            if(j != 0)
+                            {
+
+                                // Exact values
+                                fg << "* UkE#"<<j;
+
+                                // For checking the expression
+                                //fg << "* UkE#"<<j;
+                            }
+                            else
+                            {
+                                // Exact values
+                                fg << "* UkE ";
+
+                                // For checking the expression
+                                //fg << "* UkE";
+                            }
+
+                            checknumbE = checknumbE + 1;
+
+                        }
+
+                    }
+
+                    //cout << "i is " << i << endl;
+                    //cout << "j is " << j << endl;
+                    //cout << "k is " << k << endl;
+                    //cout << "l is " << l << endl;
+
+            }
+
+
+
+
+        }
+
+
+        fg << " ) * " ;
+        if(k == 0 )
+        {
+            fg << " u' * ";
+        }
+        else
+        {
+           fg << " u#" << k << "' * ";
+        }
+
+        if(l == 0 )
+        {
+            fg << " v ";
+        }
+        else
+        {
+           fg << " v#" << l;
+        }
+
+        if(l == N-1 && k== N-1)
+            fg << " ) //EOM";
+        else
+            fg << " + ";
+
+
+
+
+
+    }
+
+
+}
+
+
+fg << endl;
+fg << endl;
+fg << endl;
+
+
+
+
+// ####################################################################################
+// ####################################################################################
+// ####################################################################################
+
+// i - UkAN and j- UkE
+// k - u and l - v
+
+//cout  << Tijkl << endl;
+
+fg << "macro coeffmultbetaI(u,v)(";
+
+
+for(int l =0; l< outPC ; l++)
+{
+    for(int k =0; k< outPC ; k++)
+    {
+
+
+        fg << endl;
+
+        // Exact values
+        fg << "( Cd " ;
+
+        // For checking the expression
+        //fg << "( Cd(" << k << "," << l << ") + ";
+
+
+        for(int j =0; j< outPC ; j++)
+        {
+
+
+            for (int i =0; i< outPC ; i++)
+
+            {
+                    for(int id = 0; id < nTijkl ; id ++ )
+                    {
+
+                        if(Tijkl(id,0) == i+1 && Tijkl(id,1) == j+1 && Tijkl(id,2) == k+1 && Tijkl(id,3) == l+1 )
+                        {
+
+                            fg << " + " ;
+                            //cout << Td(id,3) << " "<< j << " "<< k << " " << l  << endl;
+
+                            if(i != 0)
+                            {
+
+                                // Exact values
+                                fg << Tijkl(id,4) << "* UkAN#"<<i;
+
+                                //cout << i+1 <<","<< j+1 <<","<< k+1 <<","<< l+1 << "        " << Tijkl(id,4) << endl;
+
+                                // For checking the expression
+                                //fg << " Tijkl("<< i+1 <<","<< j+1 <<","<< k+1 <<","<< l+1 << ")" << "* UkAN#"<<i;
+                            }
+                            else
+                            {
+                                // Exact values
+                                fg << Tijkl(id,4) << "* UkAN ";
+
+                                //cout << i+1 <<","<< j+1 <<","<< k+1 <<","<< l+1 << "        " << Tijkl(id,4) << endl;
+                                // For checking the expression
+                                //fg << " Tijkl("<< i+1 <<","<< j+1 <<","<< k+1 <<","<< l+1 << ")" << "* UkAN";
+                            }
+
+
+                            if(j != 0)
+                            {
+
+                                // Exact values
+                                fg << "* UkI#"<<j;
+
+                                // For checking the expression
+                                //fg << "* UkI#"<<j;
+                            }
+                            else
+                            {
+                                // Exact values
+                                fg << "* UkI ";
+
+                                // For checking the expression
+                                //fg << "* UkI";
+                            }
+
+
+                        }
+
+                    }
+
+                    //cout << "i is " << i << endl;
+                    //cout << "j is " << j << endl;
+                    //cout << "k is " << k << endl;
+                    //cout << "l is " << l << endl;
+
+            }
+
+
+
+
+        }
+
+
+        fg << " ) * " ;
+        if(k == 0 )
+        {
+            fg << " u' * ";
+        }
+        else
+        {
+           fg << " u#" << k << "' * ";
+        }
+
+        if(l == 0 )
+        {
+            fg << " v ";
+        }
+        else
+        {
+           fg << " v#" << l ;
+        }
+
+        if(l == N-1 && k== N-1)
+            fg << " ) //EOM";
+        else
+            fg << " + ";
+
+
+
+
+
+    }
+
+
+}
+
+
+fg << endl;
+
+
+
+
+// ####################################################################################
+// ####################################################################################
+// ####################################################################################
+
+
+// [] = [0,0,0,0];
+/*
+
+fg<< "[b,";
+for(int i = 0; i < N-1; ++i) {
+    fg << "b" << i+1;
+    if(i != N-2)
+        fg << ",";
+    else
+        fg << "] ";
+}
+
+
+fg<< "=[f,";
+for(int i = 0; i < N-1; ++i) {
+    fg << "0";
+    if(i != N-2)
+        fg << ",";
+    else
+        fg << "];";
+}
+
+
+fg << endl;
+
+
+*/
+
+
+ofstream fh("ssolution.edp");
+
+
+/*
+sol[0] = U;
+sol[1] = U1;
+sol[2] = U2;
+sol[3] = U3;
+*/
+
+fh << "sol[0] = UNL;";
+fh << endl;
+for(int i = 0; i < N-1; ++i) {
+    fh << "sol[" << i+1 << "] = "<< "UNL"<< i+1 <<";"<< endl;
+}
+
+fh << endl;
+
+
+
+ofstream fi("ssweakform1.edp");
+
+fi << "varf stoNLPoisson(def(UNL),def(VNL)) = int2d(Th[l])( coeffmultNL(UNL,VNL) )"+
+                                                    "+ int2d(Th[l])( UtransV(bnl,VNL))"+
+                                                    "+ on(1,2,3,4,UNL = 0,";
+
+ for (int i = 1; i < outPC-1; ++i)
+ {
+
+     fi << "UNL"<<i<<"=0,";
+
+
+ }
+
+ fi << "UNL"<<ordo<<"=0);";
+
+
+
+ofstream fj("ssweakform2.edp");
+
+fj << "varf stoNLPoisson(def(UNL),def(VNL)) = int2d(Th[l])( coeffmultNL(UNL,VNL) )"+
+                                                    "+ int2d(Th[l])( UtransV(bnl,VNL))"+
+                                                    "+ on(7,8,9,10,UNL = 0,";
+
+ for (int i = 1; i < outPC-1; ++i)
+ {
+
+     fj << "UNL"<<i<<"=0,";
+
+
+ }
+
+ fj << "UNL"<<ordo<<"=0);";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
